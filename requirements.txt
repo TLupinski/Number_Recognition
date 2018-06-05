@@ -1,0 +1,9 @@
+numpy
+Keras==2.1.0
+pickleshare
+matplotlib
+tqdm
+h5py
+opencv-python
+
+
