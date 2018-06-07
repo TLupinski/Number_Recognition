@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 from recurrentshop import LSTMCell, RecurrentSequential, Identity
-from .cells import LSTMDecoderCell, AttentionDecoderCell, AltAttentionDecoderCell, AltAttentionDecoderCellD
+from .cells import Softmax, LSTMDecoderCell, AttentionDecoderCell, AltAttentionDecoderCell, AltAttentionDecoderCellD
 from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, TimeDistributed, Bidirectional, Input, Reshape, Lambda, concatenate
 from keras.layers.convolutional import Conv2D, MaxPooling2D
@@ -452,7 +452,7 @@ def SimpleConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None
         raise TypeError
     if hidden_dim is None:
         hidden_dim = output_dim
-    conv_fiters=16
+    conv_fiter=16
     kernel_size = (3,3)
     input_shape = (shape[1], shape[2], 1)
     pool_size = 2
@@ -463,13 +463,13 @@ def SimpleConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
     # First conv2D plus max pooling 2D
-    inner = Conv2D(conv_filters, kernel_size, padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+    inner = Conv2D(conv_filter, kernel_size, padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
     inner = MaxPooling2D(pool_size=(pool_size, pool_size), name='max1')(inner)
     # First conv2D plus max pooling 2D
-    inner = Conv2D(conv_filters, kernel_size, padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(inner)
+    inner = Conv2D(conv_filter, kernel_size, padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(inner)
     inner = MaxPooling2D(pool_size=(pool_size, pool_size), name='max2')(inner)
     # Reshape to correct rnn inputs
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2)) * conv_filters)
+    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2)) * conv_filter)
     cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(inner)
     postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
     encoder = RecurrentSequential(unroll=unroll, stateful=stateful,
@@ -540,29 +540,61 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     _input._keras_history[0].supports_masking = True
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
-    # First conv2D plus max pooling 2D
-    conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
-    pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
-    # Second conv2d plus max pooling 2D
-    conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
-    pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
-    conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
-    # pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
-    # conv4 = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
+
+    _inputrs = Reshape(target_shape=input_shape)(_input)
+    if not CNN==None:
+        i = 1
+        cpt_conv = 2
+        cpt_pool = 1
+        reduction = [1,1]
+        n = CNN[0][0]
+        k1,k2 = CNN[1][0:2]
+        nb_filters = n
+        cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+        print(cnn_inner)
+        while i < len(CNN[0]):
+            n = CNN[0][i]
+            k1,k2 = CNN[1][2*i:2*i+2]
+            if (n > 0):
+                cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv'+str(cpt_conv))(cnn_inner)
+                cpt_conv = cpt_conv + 1
+                nb_filters = n
+            else:
+                cnn_inner = MaxPooling2D(pool_size=(k1,k2),name='max'+str(cpt_pool))(cnn_inner)
+                reduction[0] = reduction[0]*k1
+                reduction[1] = reduction[1]*k2
+                cpt_pool = cpt_pool + 1
+            print(cnn_inner)
+            i = i+1
+    else :
+        # First conv2D plus max pooling 2D
+        conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+        pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
+        # Second conv2d plus max pooling 2D
+        conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
+        pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
+        conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
+        pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
+        cnn_inner = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
 
     # Reshape to correct rnn inputs
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2) * 3 * conv_filters))
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(conv3)
+    conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
+    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
     postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
+    if Encoder==None:
+        Encoder=[hidden_dim]*depth[0]
+    else:
+        if len(Encoder)<depth[0]:
+            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
 
-    encoder = RecurrentSequential(unroll=unroll, stateful=stateful,
-                                  # return_states=True, return_all_states=True,
-                                  return_sequences=True, name='encoder')
-    encoder.add(LSTMCell(hidden_dim, batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
+    encoder = RecurrentSequential(unroll=True, stateful=stateful, 
+                                #   return_states=True, return_all_states=True,
+                                  return_sequences=True, name ='encoder')
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
 
-    for _ in range(1, depth[0]):
+    for k in range(1, depth[0]):
         encoder.add(Dropout(dropout))
-        encoder.add(LSTMCell(hidden_dim))
+        encoder.add(LSTMCell(Encoder[k]))
 
     if bidirectional:
         encoder = Bidirectional(encoder, merge_mode='sum', name='encoder')
@@ -571,13 +603,24 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
         # patch
         encoder.layer = encoder.forward_layer
 
-    encoded = encoder(cnn_out)
-    # encoded_outputs,_,encoder_states,_,_ = encoder(cnn_out)
-    # encoded = concatenate([encoded_outputs,encoder_states], axis=1) 
+    #encoded = encoder(cnn_out)
+    if (state_transfer):
+        encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
+        encoder_states._keras_shape = encoded_outputs._keras_shape
+        encoded = concatenate([encoded_outputs,encoder_states], axis=1)
+    else :
+        encoded = encoder(cnn_out)
+
+    if Decoder==None:
+        Decoder=[hidden_dim]*depth[1]
+    else:
+        if len(Decoder)<depth[1]:
+            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
+    
     decoder = RecurrentSequential(decode=True, output_length=output_length,
-                                  unroll=unroll, stateful=stateful, name='the_output')
-    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], hidden_dim)))
-    decoder.add(AltAttentionDecoderCellD(output_dim=output_dim, hidden_dim=hidden_dim))
+                                  unroll=unroll, stateful=stateful, name='decoder')
+    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
+    decoder.add(AltAttentionDecoderCellD(output_dim=output_dim, hidden_dim=Decoder[0]))
     inputs = [_input]
     out = decoder(encoded)
     model = Model(inputs, out)
@@ -591,7 +634,8 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
 def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
-              unroll=False, stateful=False, dropout=0.0, state_transfer=False):
+              unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
+              CNN=None, Encoder=None, Decoder=None):
     '''
     This is an attention Seq2seq model based on [3] with convolutionnal layers before for features extraction.
     Here, there is a soft allignment between the input and output sequence elements.
@@ -643,34 +687,57 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     _input._keras_history[0].supports_masking = True
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
-    # First conv2D plus max pooling 2D
-    conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
-    pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
-    # Second conv2d plus max pooling 2D
-    conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
-    pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
-    conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
-    # pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
-    # conv4 = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
-    # conv5 = Conv2D(512, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv5')(pool3)
-    # #conv5 = BatchNormalization()(conv5)
-    # conv6 = Conv2D(512, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv6')(conv5)
-    # #conv6 = BatchNormalization()(conv6)
-    # pool4 = MaxPooling2D(pool_size=(2,1), name='max4')(conv6)
-    # conv7 = Conv2D(512, (2,2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv7')(pool4)
+    if not CNN==None:
+        i = 1
+        cpt_conv = 2
+        cpt_pool = 1
+        reduction = [1,1]
+        n = CNN[0][0]
+        k1,k2 = CNN[1][0:2]
+        nb_filters = n
+        cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+        while i < len(CNN[0]):
+            n = CNN[0][i]
+            k1,k2 = CNN[1][2*i:2*i+2]
+            if (n > 0):
+                cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv'+str(cpt_conv))(cnn_inner)
+                cpt_conv = cpt_conv + 1
+                nb_filters = n
+            else:
+                cnn_inner = MaxPooling2D(pool_size=(k1,k2),name='max'+str(cpt_pool))(cnn_inner)
+                reduction[0] = reduction[0]*k1
+                reduction[1] = reduction[1]*k2
+                cpt_pool = cpt_pool + 1
+            i = i+1
+    else :
+        # First conv2D plus max pooling 2D
+        conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+        pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
+        # Second conv2d plus max pooling 2D
+        conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
+        pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
+        conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
+        pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
+        cnn_inner = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
 
     # Reshape to correct rnn inputs
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2) * 3 * conv_filters))
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(conv3)
+    conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
+    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
     postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
+    if Encoder==None:
+        Encoder=[hidden_dim]*depth[0]
+    else:
+        if len(Encoder)<depth[0]:
+            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
+
     encoder = RecurrentSequential(unroll=True, stateful=stateful, 
                                 #   return_states=True, return_all_states=True,
                                   return_sequences=True, name ='encoder')
-    encoder.add(LSTMCell(hidden_dim, batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
 
-    for _ in range(1, depth[0]):
+    for k in range(1, depth[0]):
         encoder.add(Dropout(dropout))
-        encoder.add(LSTMCell(hidden_dim))
+        encoder.add(LSTMCell(Encoder[k]))
 
     if bidirectional:
         encoder = Bidirectional(encoder, merge_mode='sum', name='encoder')
@@ -686,22 +753,29 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
         encoded = concatenate([encoded_outputs,encoder_states], axis=1)
     else :
         encoded = encoder(cnn_out)
+
+    if Decoder==None:
+        Decoder=[hidden_dim]*depth[1]
+    else:
+        if len(Decoder)<depth[1]:
+            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
+    
     decoder = RecurrentSequential(decode=True, output_length=output_length,
                                   unroll=unroll, stateful=stateful, name='decoder')
-    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], hidden_dim)))
+    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
     if depth[1] == 1:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim))
+        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
     else:
-        attention_cell = AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim)
-        decoder.add(attention_cell)
-        for _ in range(depth[1] - 2):
+        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        for k in range(depth[1] - 2):
             decoder.add(Dropout(dropout))
-            decoder.add(LSTMDecoderCell(output_dim=hidden_dim, hidden_dim=hidden_dim))
+            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
         decoder.add(Dropout(dropout))
-        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=hidden_dim))
+        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
     
     inputs = [_input]
     decoded = decoder(encoded)
     output = Softmax(name = 'the_output')(decoded)
     model = Model(inputs, output)
+    model.summary()
     return model

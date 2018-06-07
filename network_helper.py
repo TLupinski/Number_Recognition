@@ -232,6 +232,7 @@ class TextImageGenerator(keras.callbacks.Callback):
     def get_batch(self, index, size, train):
         # width and height are backwards from typical Keras convention
         # because width is the time dimension when it gets fed into the RNN
+        print("Salut les loulous")
         if K.image_data_format() == 'channels_first':
             X_data = np.ones([size, self.img_w, self.img_h])
         else:

@@ -17,7 +17,7 @@ import pickle
 if True:
     history = {}
     epoch = []
-    f = open("./data/output/CConvEDAttC2:ORAND-A/metrics.pk",'r')
+    f = open("./data/output/Attention-CARA-CNN4_64-RNN_100/metrics.pk",'rb')
     history = pickle.loads(f.read())
     init_epoch = len(history['loss'])
     for i in range (init_epoch):

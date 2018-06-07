@@ -70,28 +70,6 @@ class VizCallback(keras.callbacks.Callback):
         self.model.save_weights(os.path.join(self.output_dir, 'weights%02d.h5' % (epoch)))
         #Save model   (overwrite)
         self.model.save(os.path.join(self.output_dir, 'model.h5'),overwrite=True)
-        #Compute edit distance for 100 samples from validation set
-        #self.show_edit_distance(100)
-        #word_batch = next(self.text_img_gen)[0]
-        #res = nt.decode_batch(self.test_func, word_batch['the_input'][0:self.num_display_words],alphabet)
-        #if word_batch['the_input'][0].shape[0] < 256:
-        #    cols = 2
-        #else:
-        #    cols = 1
-        #for i in range(8):
-        #    pylab.subplot(self.num_display_words // cols, cols, i + 1)
-        #    if K.image_data_format() == 'channels_first':
-        #        the_input = word_batch['the_input'][i, 0, :, :]
-        #    else:
-        #        the_input = word_batch['the_input'][i, :, :, 0]
-        #    pylab.imshow(the_input.T, cmap='Greys_r')
-        #    pylab.xlabel('Truth = \'%s\'\n Decoded = \'%s\'' % (word_batch['source_str'][i], res[i]))
-        #for i in range(len(res[i])):
-        #    print("Resultat : ",word_batch['source_str'][i], res[i])
-        #fig = pylab.gcf()
-        #fig.set_size_inches(10, 13)
-        #pylab.savefig(os.path.join(self.output_dir, 'e%02d.png' % (epoch)))
-        #pylab.close()
 
 class HistorySaver(keras.callbacks.History):
     '''
@@ -156,7 +134,7 @@ def create_sparse(labels):
     return tf.SparseTensor(indices, values, dense_shape=shape)
 
 
-def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model):
+def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, **kwargs):
     """
     Train a model
 
@@ -204,10 +182,10 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
 
     #Start from random initialization or used saved weights
     if start_epoch ==0:
-        model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen)
+        model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
     else:
         dir_path = os.path.join(OUTPUT_DIR,run_name)
-        model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen)
+        model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
         weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
         model.load_weights(weight_file)
         #est_func = K.function([model.get_layer('the_input').input], [model.get_layer('softmax').output])
@@ -230,7 +208,9 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                             validation_data=img_gen.next_val(),
                             validation_steps=img_gen.get_val_steps(),
                             callbacks=callbacks,
-                            initial_epoch=start_epoch)
+                            initial_epoch=start_epoch,
+                            workers=4, 
+                            use_multiprocessing=True)
     else:
         hist = model.fit_generator(generator=img_gen.next_train(),
                             steps_per_epoch=img_gen.get_train_steps(),
@@ -273,6 +253,17 @@ if __name__ == '__main__':
     # character classes
     alphabet = init_content[11] #+ string.lowercase +  " " # + string.uppercase + string.punctuation
     type_model=init_content[12]
+    if "Attention" in type_model and len(init_content) >= 16:
+        c1 = [int(x) for x in init_content[13].split(',')]
+        c2 = [int(x) for x in init_content[14].split(',')]
+        enc = [int(x) for x in init_content[15].split(',')]
+        dec = [int(x) for x in init_content[16].split(',')]
+        kwargs = {'CNN' : [c1,c2],
+                'Encoder' : enc,
+                'Decoder' : dec}
+        print(kwargs)
+    else:
+        kwargs = {}
     train(run_name=run_name,start_epoch=start,stop_epoch=stop, type_model=type_model,
             img_w=image_width, img_h=image_height, val_split=val_split, minibatch_size=minibatch_size,
-            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage)
+            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)

@@ -45,11 +45,11 @@ def get_custom(type_model):
             'AltAttentionDecoderCell':AltAttentionDecoderCell, 'LSTMDecoderCell':LSTMDecoderCell}
     return {'ctc': lambda y_true, y_pred: y_pred}
 
-def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None):
+def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, **kwargs):
     if (type_model=='Attention'):
-        return Model_Attention(input_shape, output_shape, img_gen)
+        return Model_Attention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='DisplayAttention'):
-        return Model_DisplayAttention(input_shape, output_shape, img_gen,weight_file)
+        return Model_DisplayAttention(input_shape, output_shape, img_gen,weight_file, **kwargs)
     if (type_model=='CNNRNNCTC'):
         return Model_CNN_RNN_CTC(input_shape, img_gen)
     if (type_model=='ResCGRUCTC'):
@@ -60,8 +60,8 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None):
         return Model_Dummy(input_shape, output_shape)
     return None,None
         
-def Model_Attention(input_shape, output_shape, img_gen):
-    model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25)
+def Model_Attention(input_shape, output_shape, img_gen, **kwargs):
+    model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
     opt = keras.optimizers.Adam(lr=0.001)
     model.compile(loss='mse', optimizer=opt,metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
