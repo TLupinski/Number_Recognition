@@ -124,6 +124,7 @@ class TextImageGenerator(keras.callbacks.Callback):
         self.maxbatch_size = maxbatch_size
         self.acceptable_loss = acceptable_loss
         self.use_ctc = use_ctc
+        self.lock = threading.Lock()
         if maxbatch_size ==-1:
             self.maxbatch_size = int(memory_usage_limit / (img_w*img_h))
         if channels == 1:
@@ -232,7 +233,6 @@ class TextImageGenerator(keras.callbacks.Callback):
     def get_batch(self, index, size, train):
         # width and height are backwards from typical Keras convention
         # because width is the time dimension when it gets fed into the RNN
-        print("Salut les loulous")
         if K.image_data_format() == 'channels_first':
             X_data = np.ones([size, self.img_w, self.img_h])
         else:
@@ -286,20 +286,22 @@ class TextImageGenerator(keras.callbacks.Callback):
         return self.train_size // self.minibatch_size
 
     def next_train(self):
-        while 1:
-            ret = self.get_batch(self.cur_train_index, self.minibatch_size, train=True)
-            self.cur_train_index += self.minibatch_size
-            if self.cur_train_index >= self.train_size:
-                self.cur_train_index = self.cur_train_index % self.minibatch_size
-            yield ret
+        with self.lock:
+            while 1:
+                ret = self.get_batch(self.cur_train_index, self.minibatch_size, train=True)
+                self.cur_train_index += self.minibatch_size
+                if self.cur_train_index >= self.train_size:
+                    self.cur_train_index = self.cur_train_index % self.minibatch_size
+                yield ret
 
     def next_val(self):
-        while 1:
-            ret = self.get_batch(self.cur_val_index, self.minibatch_size, train=False)
-            self.cur_val_index += self.minibatch_size
-            if self.cur_val_index >= self.val_size:
-                self.cur_val_index = self.cur_val_index % self.minibatch_size
-            yield ret
+        with self.lock:
+            while 1:
+                ret = self.get_batch(self.cur_val_index, self.minibatch_size, train=False)
+                self.cur_val_index += self.minibatch_size
+                if self.cur_val_index >= self.val_size:
+                    self.cur_val_index = self.cur_val_index % self.minibatch_size
+                yield ret
 
     def on_train_begin(self, logs={}):
         print('Begin training...')
