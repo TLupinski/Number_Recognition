@@ -1,10 +1,40 @@
 import recurrentshop
 from recurrentshop.cells import *
 from keras.models import Model
-from keras.layers import Input, Dense, TimeDistributed, Lambda, Activation
+from keras.layers import Layer, Input, Dense, TimeDistributed, Lambda, Activation
 from keras.layers import add, multiply, concatenate
 from keras import backend as K
 from keras.backend import print_tensor
+import keras.activations
+
+#Keras 2.1.0 does not support Softmax function, redefinition of Softmax layer as in Keras 2.3
+class Softmax(Layer):
+    """Softmax activation function.
+    # Input shape
+        Arbitrary. Use the keyword argument `input_shape`
+        (tuple of integers, does not include the samples axis)
+        when using this layer as the first layer in a model.
+    # Output shape
+        Same shape as the input.
+    # Arguments
+        axis: Integer, axis along which the softmax normalization is applied.
+    """
+
+    def __init__(self, axis=-1, **kwargs):
+        super(Softmax, self).__init__(**kwargs)
+        self.supports_masking = True
+        self.axis = axis
+
+    def call(self, inputs):
+        return activations.softmax(inputs, axis=self.axis)
+
+    def get_config(self):
+        config = {'axis': self.axis}
+        base_config = super(Softmax, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
 
 
 class LSTMDecoderCell(ExtendedRNNCell):
