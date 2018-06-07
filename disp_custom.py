@@ -28,7 +28,7 @@ import network_helper as nt
 from network_helper import TextImageGenerator
 import custom_model
 
-def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model):
+def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, **kwargs):
     weight_file = "data/output/"+run_name+"/weights"+str(start_epoch-1)+".h5"
 
     if K.image_data_format() == 'channels_first':
@@ -54,8 +54,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
 
     dir_path = os.path.join(OUTPUT_DIR,run_name)
     weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
-    model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, weight_file)
-
+    model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, weight_file, **kwargs)
     #print 'Compiling model'
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     #model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
@@ -70,9 +69,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     step = nb_samples//minibatch_size
     print("Début prédiction")
     predict = model.predict_generator(generator=img_gen.next_train(),
-                            steps=step,
-                            max_queue_size=10,
-                            workers=1)
+                            steps=step)
     print("Début scorring")
     accuracy_w = 0
     accuracy_c = 0
@@ -154,7 +151,7 @@ if __name__ == '__main__':
 
 
     os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
-    OUTPUT_DIR = 'data/output/'
+    OUTPUT_DIR = '../RecoChiffre/data/output/'
     weight_file = "data/output/weight00.h5"
     #datafolder_name = "../Dataset/MNIST/MNIST_Training_Multi"
     #datafolder_name = "../Dataset/ORAND-CAR/Binarized_CAR-A/a_train_images/"
@@ -179,7 +176,17 @@ if __name__ == '__main__':
     # character classes
     alphabet = init_content[11] #+ string.lowercase +  " " # + string.uppercase + string.punctuation
     type_model=init_content[12]
+    if "Attention" in type_model and len(init_content) >= 16:
+        c1 = [int(x) for x in init_content[13].split(',')]
+        c2 = [int(x) for x in init_content[14].split(',')]
+        enc = [int(x) for x in init_content[15].split(',')]
+        dec = [int(x) for x in init_content[16].split(',')]
+        kwargs = {'CNN' : [c1,c2],
+                'Encoder' : enc,
+                'Decoder' : dec}
+    else:
+        kwargs = {}
     test(run_name=run_name,start_epoch=start, type_model=type_model,
             img_w=image_width, img_h=image_height, minibatch_size=minibatch_size,
-            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage)
+            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)
 

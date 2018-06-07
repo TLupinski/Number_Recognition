@@ -163,7 +163,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=1,
+                                 downsample_factor=4,
                                  val_split=val_split,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
@@ -171,7 +171,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  acceptable_loss=10,
                                  memory_usage_limit=batch_memory_usage,
                                  channels=channels,
-                                 use_ctc=False)
+                                 use_ctc=True)
     minibatch_size = img_gen.minibatch_size
 
     print('Building model...')
@@ -208,9 +208,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                             validation_data=img_gen.next_val(),
                             validation_steps=img_gen.get_val_steps(),
                             callbacks=callbacks,
-                            initial_epoch=start_epoch,
-                            workers=4, 
-                            use_multiprocessing=True)
+                            initial_epoch=start_epoch)
     else:
         hist = model.fit_generator(generator=img_gen.next_train(),
                             steps_per_epoch=img_gen.get_train_steps(),

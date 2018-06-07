@@ -71,8 +71,8 @@ def Model_Attention(input_shape, output_shape, img_gen, **kwargs):
     test_func = K.function([inputs], [y_pred])
     return model, test_func
 
-def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile):
-    model = TruncConvAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), filename =weightfile)
+def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile, **kwargs):
+    model = TruncConvAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), filename =weightfile, **kwargs)
     model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
     inputs = inp.input
@@ -175,9 +175,10 @@ def Model_ResCGRU(input_shape, img_gen):
     img_h = input_shape[1]
     
     input_data = Input(name='the_input', shape=input_shape, dtype='float32')
+    input_data_rs = Reshape(target_shape=input_shape+(1,))(input_data)
     conv_1 = Conv2D(64, (5,5), padding='same',
                    activation=act, kernel_initializer='he_normal',
-                   name='conv1')(input_data)
+                   name='conv1')(input_data_rs)
     pool_1 =  MaxPooling2D(pool_size=(pool_size,pool_size),name='max1')(conv_1)
     conv_2a = Conv2D(64, (3,3), padding='same',
                    activation=act, kernel_initializer='he_normal',
@@ -213,8 +214,7 @@ def Model_ResCGRU(input_shape, img_gen):
     conv_5r = Conv2D(512, (1,1), strides=(1,2), padding='valid',kernel_initializer='he_normal',
                    name='conv5r')(res_4)
     res_5 = add([conv_5b,conv_5r])
-    
-    conv_to_rnn_dims = ((img_w // (2)), (1+(img_h // (16))) * 512)
+    conv_to_rnn_dims = ((img_w // (2)), ((img_h // (16))) * 512)
     rnn_input = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(res_5)
 
     # cuts down input size going into RNN:
@@ -251,8 +251,8 @@ def Model_ResCGRU(input_shape, img_gen):
 
     model = Model(inputs=[input_data, labels, input_length, label_length], outputs=loss_out)
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
-    adam = keras.optimizers.Adam(lr=learning_rate, beta_1=momentum1, beta_2=momentum2)
-    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=adam, metrics=['accuracy'])
+    opt = keras.optimizers.Adadelta()
+    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=opt, metrics=['accuracy'])
 
     # captures output of softmax so we can decode the output during visualization
     test_func = K.function([input_data], [y_pred])
