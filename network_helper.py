@@ -266,7 +266,6 @@ class TextImageGenerator(keras.callbacks.Callback):
             else:
                 labels[i] = text_to_labels(text, self.alphabet, self.absolute_max_string_len)
         X_data = np.array(X_data)
-        print(labels)
         if self.use_ctc:
             inputs = {'the_input': X_data,
                       'the_labels': labels,
