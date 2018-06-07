@@ -216,7 +216,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
     history = HistorySaver(start_epoch)
     viz_cb = VizCallback(run_name, test_func, img_gen.next_val())
     #tsboard = TensorBoardWrapper(img_gen, img_gen.get_val_steps(),log_dir='./logs',histogram_freq=1,write_grads=True, write_images=True)
-    callbacks = [viz_cb]
+    callbacks = [history, viz_cb]
 
     #Save model
     modelpath = "./data/output/"+run_name+"/model.h5"

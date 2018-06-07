@@ -5,10 +5,7 @@ import itertools
 import codecs
 import re
 import datetime
-import cairocffi as cairo
-import editdistance
 import numpy as np
-from scipy import ndimage
 import pylab
 from pylab import *
 import matplotlib
@@ -35,10 +32,10 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     weight_file = "data/output/"+run_name+"/weights"+str(start_epoch-1)+".h5"
 
     if K.image_data_format() == 'channels_first':
-        print 'NOT IMPLEMENTED !!!'
+        print('NOT IMPLEMENTED !!!')
 
     input_shape = (img_w, img_h)
-    print 'Build text image generator'
+    print('Build text image generator')
     img_gen = TextImageGenerator(train_folder=datafolder_name,
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
@@ -57,7 +54,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
 
     dir_path = os.path.join(OUTPUT_DIR,run_name)
     weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
-    model, test_func = custom_model.Model_DisplayAttention((img_w,img_h),(max_str_len,len(alphabet)), img_gen, weight_file)
+    model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, weight_file)
 
     #print 'Compiling model'
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
@@ -68,23 +65,22 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     y_pred = model.get_layer('the_output').output
     enc_func = K.function([input_data], [e_pred])
     out_func = K.function([input_data], [y_pred])
-
+    attention = True
     #print(model.summary())
-    step = nb_samples/minibatch_size
+    step = nb_samples//minibatch_size
     print("Début prédiction")
     predict = model.predict_generator(generator=img_gen.next_train(),
                             steps=step,
                             max_queue_size=10,
-                            workers=1,
-                            use_multiprocessing=True)
+                            workers=1)
     print("Début scorring")
     accuracy_w = 0
     accuracy_c = 0
     nb_res = 0
     nb_mot = 0
-    hidden = 64
-    img_w = img_w/16
-    img_h = img_h/4
+    hidden = 16 * 2
+    n_img_w = img_w//2
+    n_img_h = img_h//2
     nb_display = 2
     for i in range(step):
         wb = word_batch = next(img_gen.next_train())
@@ -93,8 +89,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
         num_proc = word_batch['the_input'].shape[0]
         enc = enc_func([word_batch['the_input'][0:num_proc]])[0]
         out = out_func([word_batch['the_input'][0:num_proc]])[0]
-
-        if True:
+        if attention:
             for i in range(minibatch_size):
                 img = word_batch['the_input'][i].T
                 shape = np.shape(img)
@@ -104,33 +99,33 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                 for j in range(max_str_len):
                     att = out[i][j]
                     superposed = np.copy(img)
-                    for a in range(256):
-                        for b in range(32):
-                            if (att[a/4]>0):
-                                superposed[b][a][0] = superposed[b][a][0]/2 + 123*att[a/4]
-                            superposed[b][a][1] = superposed[b][a][1]*(1-att[a/4])
-                            superposed[b][a][2] = superposed[b][a][2]*(1-att[a/4])
+                    for a in range(img_w):
+                        for b in range(img_h):
+                            if (att[a//4]>0):
+                                superposed[b][a][0] = superposed[b][a][0]/2 + 123*att[a//4]
+                            superposed[b][a][1] = superposed[b][a][1]*(1-att[a//4])
+                            superposed[b][a][2] = superposed[b][a][2]*(1-att[a//4])
                     subplot(max_str_len+1,1,2+j)
                     imshow(superposed)
                 show()
         else:
-            out = np.reshape(out, (minibatch_size,max_str_len,64))
             #Afficher les différentes couches de convolutions
-            if (len(np.shape(out)) > 50):
-                decoded_res = np.zeros(shape=(minibatch_size,hidden,img_w,img_h))
+            if (len(np.shape(out)) > 3):
+                decoded_res = np.zeros(shape=(minibatch_size,hidden,n_img_w,n_img_h))
                 for j in range(minibatch_size):
                     for w in range(hidden):
-                        for x in range(img_w):
-                            for y in range(img_h):
+                        for x in range(n_img_w):
+                            for y in range(n_img_h):
                                 decoded_res[j][w][x][y] = out[j][x][y][w]
                 for j in range(3):#minibatch_size):
                     for k in range(hidden):
                         b = decoded_res[j][k]
                         subplot(24, 8,k+1+j*hidden)
-                        imshow(b.T, cmap = cm.hot)
+                        imshow(b.T)
                 show()
             #Afficher les séquences comme des images
             else:
+                out = np.reshape(out, (minibatch_size,max_str_len,11))
                 for j in range(minibatch_size):
                     img = word_batch['the_input'][j]
                     img = np.repeat(np.reshape(img,np.shape(img)+(1,)),3,axis=-1)
@@ -142,7 +137,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                         imshow(enc[j].T, cmap=cm.gray)
                 for j in range(minibatch_size):
                     subplot(nb_display,minibatch_size,j+1+(nb_display-1)*minibatch_size)
-                    imshow(out[j], cmap=cm.hot)
+                    imshow(out[j].T)
                 show()
     
 

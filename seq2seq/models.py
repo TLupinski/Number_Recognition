@@ -540,11 +540,11 @@ def SimpleConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None
 
 def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
-              input_dim=None, hidden_dim=None, depth=1, bidirectional=True, unroll=True, stateful=False, dropout=0.0):
+              input_dim=None, hidden_dim=None, depth=1, bidirectional=True, unroll=False, stateful=False, dropout=0.0):
 
-    wmdl = ConvAttentionSeq2Seq(output_dim, output_dim, batch_input_shape, batch_size, input_shape, input_length,
-                                input_dim, hidden_dim,depth,bidirectional,unroll,stateful,dropout)
+    wmdl = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_length, input_dim=input_dim, hidden_dim=hidden_dim, output_length=output_length, output_dim=output_dim, depth=(2,1))
     wmdl.load_weights(filename)
+    print("Full Model Loaded")
     if isinstance(depth, int):
         depth = (depth, depth)
     if batch_input_shape:
@@ -562,6 +562,7 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     if hidden_dim is None:
         hidden_dim = output_dim
     input_shape = (shape[1], shape[2], 1)
+    conv_filters = 16
     pool_size = 2
     img_w = input_shape[0]
     img_h = input_shape[1]
@@ -570,18 +571,18 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
     # First conv2D plus max pooling 2D
-    conv1 = Conv2D(16, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+    conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
     pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
     # Second conv2d plus max pooling 2D
-    conv2 = Conv2D(32, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
+    conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
     pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
-    conv3 = Conv2D(64, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
-    pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
-    conv4 = Conv2D(128, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
+    conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
+    # pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
+    # conv4 = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
 
     # Reshape to correct rnn inputs
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 3)) * 128)
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(conv4)
+    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2) * 3 * conv_filters))
+    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(conv3)
     postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
 
     encoder = RecurrentSequential(unroll=unroll, stateful=stateful,
@@ -614,7 +615,7 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
         w = wmdl.get_layer(index=i).get_weights()
         if not w==None:
             model.get_layer(index=i).set_weights(w)
-    #model.get_layer(name='the_output').get_cell(name='attention_decoder_cell_1').set_weights(wmdl.get_layer(name='decoder').get_cell(name='attention_decoder_cell_1').get_weights())
+    model.get_layer(name='the_output').get_cell(name='attention_decoder_cell_1').set_weights(wmdl.get_layer(name='decoder').get_cell(name='attention_decoder_cell_1').get_weights())
     return model
 
 def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
@@ -663,7 +664,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
         raise TypeError
     if hidden_dim is None:
         hidden_dim = output_dim
-    conv_filters = 32
+    conv_filters = 16
     pool_size = 2
     input_shape = (shape[1], shape[2], 1)
     img_w = input_shape[0]
@@ -679,8 +680,8 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
     pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
     conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
-    pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
-    conv4 = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
+    # pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
+    # conv4 = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
     # conv5 = Conv2D(512, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv5')(pool3)
     # #conv5 = BatchNormalization()(conv5)
     # conv6 = Conv2D(512, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv6')(conv5)
@@ -689,12 +690,12 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     # conv7 = Conv2D(512, (2,2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv7')(pool4)
 
     # Reshape to correct rnn inputs
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 3) * 4 * conv_filters))
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(conv4)
+    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2) * 3 * conv_filters))
+    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(conv3)
     postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
     encoder = RecurrentSequential(unroll=True, stateful=stateful, 
                                 #   return_states=True, return_all_states=True,
-                                  return_sequences=True)
+                                  return_sequences=True, name ='encoder')
     encoder.add(LSTMCell(hidden_dim, batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
 
     for _ in range(1, depth[0]):
@@ -702,7 +703,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
         encoder.add(LSTMCell(hidden_dim))
 
     if bidirectional:
-        encoder = Bidirectional(encoder, merge_mode='sum')
+        encoder = Bidirectional(encoder, merge_mode='sum', name='encoder')
         encoder.forward_layer.build(postcshape)
         encoder.backward_layer.build(postcshape)
         # patch

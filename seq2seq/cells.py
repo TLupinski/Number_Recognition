@@ -273,18 +273,10 @@ class AltAttentionDecoderCellD(ExtendedRNNCell):
         hidden_dim = self.hidden_dim
 
         X = Input(batch_shape=input_shape, name='input')
-        # n = input_shape[1]/2
-        # x, c = Lambda(lambda x: [x[:,:n],x[:,n:]], mask = [None,None])(X)
         h_tm1 = Input(batch_shape=(input_shape[0], hidden_dim), name = 'pv_output')
         c_tm1 = Input(batch_shape=(input_shape[0], hidden_dim), name = 'pv_state')
         alpha_tm1 = Input(batch_shape=(input_shape[0],input_length,1), name = 'pv_alpha')
         a_tm1 = Reshape((input_length,))(alpha_tm1)
-
-        # def slice(a,b):
-        #     return a[:,0,:]
-        # L = Lambda(lambda a,b: slice(a,b), output_shape=(1,input_shape[2]), arguments={'b':X}, mask=None, name='lambda_slice')
-        
-        # E_tm1 = L(c)
 
         W = Dense(output_dim,
                    kernel_initializer=self.kernel_initializer,
@@ -311,7 +303,7 @@ class AltAttentionDecoderCellD(ExtendedRNNCell):
         _E = dE(c_tm1)
         _E = Reshape(target_shape=(input_length,))(_E)
         _A = dA(a_tm1)
-        en = add([_x,_E,_A])
+        en = multiply([_x,_E,_A])
         en = Activation('tanh')(en)
         energy =dT(en)
         alpha = Softmax(axis=-2, name='alpha')(energy)

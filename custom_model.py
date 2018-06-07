@@ -61,8 +61,8 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None):
     return None,None
         
 def Model_Attention(input_shape, output_shape, img_gen):
-    model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=256, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1))
-    opt = keras.optimizers.RMSprop(lr=0.0001)
+    model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25)
+    opt = keras.optimizers.Adam(lr=0.001)
     model.compile(loss='mse', optimizer=opt,metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
     inputs = inp.input
@@ -72,7 +72,7 @@ def Model_Attention(input_shape, output_shape, img_gen):
     return model, test_func
 
 def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile):
-    model = TruncConvAttentionSeq2Seq(filename =weightfile,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1))
+    model = TruncConvAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), filename =weightfile)
     model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
     inputs = inp.input
@@ -138,8 +138,6 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     inner = Dense(img_gen.get_output_size(), kernel_initializer='he_normal',
                   name='dense2')(concatenate([gru_2, gru_2b]))
     y_pred = Activation('softmax', name='softmax')(inner)
-    Model(inputs=input_data, outputs=y_pred).summary()
-
     labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
     input_length = Input(name='input_length', shape=[1], dtype='int64')
     label_length = Input(name='label_length', shape=[1], dtype='int64')
