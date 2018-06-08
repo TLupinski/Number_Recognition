@@ -186,8 +186,8 @@ def Model_ResCGRU(input_shape, img_gen):
     conv_2b = Conv2D(64, (3,3), padding='same',
                    activation=act, kernel_initializer='he_normal',
                    name='conv2b')(conv_2a)
-    res_2d = add([pool_1,conv_2b])
-    res_2  = Dropout(0.4)(res_2d)
+    res_2 = add([pool_1,conv_2b])
+    # res_2  = Dropout(0.4)(res_2d)
 
     conv_3a = Conv2D(128, (3,3), strides=(1,2), activation=act,padding='same',kernel_initializer='he_normal',
                    name='conv3a')(res_2)
@@ -195,8 +195,8 @@ def Model_ResCGRU(input_shape, img_gen):
                    name='conv3b')(conv_3a)
     conv_3r = Conv2D(128, (1,1), strides=(1,2), padding='valid',kernel_initializer='he_normal',
                    name='conv3r')(res_2)
-    res_3d= add([conv_3b,conv_3r])
-    res_3 = Dropout(0.4)(res_3d)
+    res_3= add([conv_3b,conv_3r])
+    # res_3 = Dropout(0.4)(res_3d)
 
     conv_4a = Conv2D(256, (3,3), strides=(1,2), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv4a')(res_3)
@@ -204,8 +204,8 @@ def Model_ResCGRU(input_shape, img_gen):
                    name='conv4b')(conv_4a)
     conv_4r = Conv2D(256, (1,1), strides=(1,2),padding='valid',kernel_initializer='he_normal',
                    name='conv4r')(res_3)
-    res_4d = add([conv_4b,conv_4r])
-    res_4  = Dropout(0.4)(res_4d)
+    res_4 = add([conv_4b,conv_4r])
+    #res_4  = Dropout(0.4)(res_4d)
 
     conv_5a = Conv2D(512, (3,3), strides=(1,2), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv5a')(res_4)
@@ -220,8 +220,8 @@ def Model_ResCGRU(input_shape, img_gen):
     # cuts down input size going into RNN:
     #rnn_input = Dense(time_dense_size, activation=act, name='dense1')(conv_rs)
 
-    rec_dropout = 0.2
-    dropout = 0.25
+    rec_dropout = 0.0
+    dropout = 0.0
     # Two layers of bidirectional GRUs
     # GRU seems to work as well, if not better than LSTM:
     gru_1  = GRU(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(rnn_input)

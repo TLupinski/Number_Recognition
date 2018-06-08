@@ -240,13 +240,13 @@ class AltAttentionDecoderCell(ExtendedRNNCell):
                   kernel_regularizer=self.kernel_regularizer)
         dE = Dense(input_length,
                   kernel_initializer=self.kernel_initializer,
-                  kernel_regularizer=self.kernel_regularizer)
+                  kernel_regularizer=self.kernel_regularizer, name="DenseE")
         dT = Dense(1,
                   kernel_initializer=self.kernel_initializer,
-                  kernel_regularizer=self.kernel_regularizer)
+                  kernel_regularizer=self.kernel_regularizer, name="DenseT")
         dA = Dense(input_length,
                   kernel_initializer=self.kernel_initializer,
-                  kernel_regularizer=self.kernel_regularizer)
+                  kernel_regularizer=self.kernel_regularizer, name="DenseA")
         _x = dX(X)
         _E = dE(c_tm1)
         _E = Reshape(target_shape=(input_length,))(_E)
@@ -300,10 +300,10 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
         c_tm1 = model.get_layer('pv_state').input
         alpha_tm1 = model.get_layer('pv_alpha').input
         alpha  = model.get_layer('alpha').output
-        alphaD = model.get_layer('alphaD').output
+        out = model.get_layer('DenseA').output
         h = model.get_layer('h').output
         c = model.get_layer('c').output
-        new_model = Model([X, h_tm1, c_tm1, alpha_tm1], [alphaD, h, c, alpha])
+        new_model = Model([X, h_tm1, c_tm1, alpha_tm1], [out, h, c, alpha])
         new_model.summary()
         print(new_model.get_layer(index=-1).output)
         return new_model

@@ -20,6 +20,7 @@ from keras.preprocessing import image
 import keras.callbacks
 from keras.callbacks import History
 import cv2
+import edistance
 import custom_model
 from tqdm import tqdm
 from keras.utils import plot_model
@@ -55,7 +56,7 @@ class VizCallback(keras.callbacks.Callback):
             decoded_res = nt.decode_batch(self.test_func,word_batch['input_1'][0:num_proc],alphabet)
             for j in range(num_proc):
                 source_str = nt.translate_array(out_batch['softmax_1'][j],alphabet)
-                edit_dist = editdistance.eval(decoded_res[j], source_str)
+                edit_dist = edistance.eval(decoded_res[j], source_str)
                 #print(decoded_res[j] + ' | ' + source_str + ' = ' + str(edit_dist))
                 mean_ed += float(edit_dist)
                 mean_norm_ed += float(edit_dist) / len(out_batch['softmax_1'][j])

@@ -8,6 +8,7 @@ import keras
 from keras import backend as K
 from keras.preprocessing import image
 from keras.callbacks import Callback
+import itertools
 import string
 import glob
 import cv2
@@ -74,11 +75,11 @@ def text_to_labels(text, alphabet, size=-1):
             ret[i][len(alphabet)-1] = 1
         return ret
 
-def labels_to_text(labels, alphabet):
+def labels_to_text(labels, alphabet, size):
     """Reverse translation of numerical classes back to characters."""
     ret = []
     for c in labels:
-        if c == len(alphabet)-1:  # CTC Blank
+        if c == size:  # CTC Blank
             ret.append("")
         else:
             ret.append(alphabet[c])
@@ -355,17 +356,18 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
     for i in range(out.shape[0]):
         ret.append([])
     for j in range(out.shape[0]):
+        dx = 1
+        if ctc_decode:
+            dx = 0
         if n == 1:
             out_best = list(np.argmax(out[j, :], 1))
             scores = [1]
-            outstr = labels_to_text(out_best,alphabet)
+            outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)
             ret[j].append(outstr)
         else:
             out_best, scores = decode_n_best(out[j], n, len(alphabet))
             for i in range(n):
-                ret[j].append(labels_to_text(out_best[i],alphabet))
-        if ctc_decode:
-            out_best = [k for k, g in itertools.groupby(out_best)]
+                ret[j].append(labels_to_text(out_best[i],alphabet, len(alphabet)-dx))
     return ret, scores
 
 def decode_n_best(res, n, a):
