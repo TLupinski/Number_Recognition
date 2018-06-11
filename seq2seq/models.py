@@ -625,7 +625,16 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
         w = wmdl.get_layer(index=i).get_weights()
         if not w==None:
             model.get_layer(index=i).set_weights(w)
-    model.get_layer(name='the_output').get_cell(name='attention_decoder_cell_1').set_weights(wmdl.get_layer(name='decoder').get_cell(name='attention_decoder_cell_1').get_weights())
+
+    # mattcell = model.get_layer(name='the_output').get_cell(name='alt_attention_decoder_cell_d_1')
+    # lmattcell = wmdl.get_layer(name='decoder').get_cell(name='alt_attention_decoder_cell_1')
+    # plop = [[layer.name, layer.get_weights()] for layer in lmattcell.layers]
+    # print(plop)
+
+    # for name, weight in plop:
+    #     if not weight==[]:
+    #         mattcell.get_layer(name=name).set_weights(weight)
+    #model.get_layer(name='the_output').get_cell(name='alt_attention_decoder_cell_d_1').get_cell(name='alt_attention_decoder_cell_1').get_weights())
     return model
 
 def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,

@@ -44,7 +44,7 @@ def complete_states(stats, op, str1, str2):
             stats[10][x] = stats[10][x] + 1
     return stats
 
-def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model):
+def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, **kwargs):
     """
     Train a model
 
@@ -59,7 +59,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     if K.image_data_format() == 'channels_first':
         print('NOT IMPLEMENTED !!!')
 
-    use_ctc=True
+    use_ctc=False
     input_shape = (img_w, img_h)
     print('Build text image generator')
     img_gen = TextImageGenerator(train_folder=datafolder_name,
@@ -86,7 +86,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     # out = model.get_layer('the_output')
     # y_pred = out.output
     # test_func = K.function([inputs], [y_pred])
-    model, test_func = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen)
+    model, test_func = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen, **kwargs)
     weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
     model.load_weights(weight_file)
 
@@ -106,7 +106,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                             max_queue_size=10,
                             workers=1)
     print("Début évaluation")
-    N = 1
+    N = 5
     accuracy_w = [0]*N
     accuracy_c = [0]*N
     nb_res = 0
@@ -177,7 +177,7 @@ if __name__ == '__main__':
 
 
     os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
-    OUTPUT_DIR = '../RecoChiffre/data/output/'
+    OUTPUT_DIR = './data/output/'
     weight_file = "data/output/weight00.h5"
     #datafolder_name = "../Dataset/MNIST/MNIST_Training_Multi"
     #datafolder_name = "../Dataset/ORAND-CAR/Binarized_CAR-A/a_train_images/"
@@ -202,7 +202,20 @@ if __name__ == '__main__':
     # character classes
     alphabet = init_content[11] #+ string.lowercase +  " " # + string.uppercase + string.punctuation
     type_model=init_content[12]
+    if "Attention" in type_model and len(init_content) >= 16:
+        c1 = [int(x) for x in init_content[13].split(',')]
+        c2 = [int(x) for x in init_content[14].split(',')]
+        enc = [int(x) for x in init_content[15].split(',')]
+        dec = [int(x) for x in init_content[16].split(',')]
+        kwargs = {'CNN' : [c1,c2],
+                'Encoder' : enc,
+                'Decoder' : dec}
+        print(kwargs)
+    else:
+        kwargs = {}
+    kwargs['loss']='mse'
+    kwargs['opt']='sgd'
     test(run_name=run_name,start_epoch=start, type_model=type_model,
             img_w=image_width, img_h=image_height, minibatch_size=minibatch_size,
-            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage)
+            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)
 

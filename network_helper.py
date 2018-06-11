@@ -202,7 +202,7 @@ class TextImageGenerator(keras.callbacks.Callback):
     def get_train_image(self, index):
         im_path = self.train_data[index]['image']
         if os.path.exists(im_path):
-            return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),255.)
+            return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),127.5)-1.0
         else:
             print("File not found {}".format(self.train_data[index]))
         return ""
@@ -213,7 +213,7 @@ class TextImageGenerator(keras.callbacks.Callback):
     #Load one image from validation set
     def get_val_image(self, index):
         im_path = self.val_data[index]['image']
-        return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),255.)
+        return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),127.5)-1.0
 
     #Return ground truth from validation set
     def get_val_text(self, index):

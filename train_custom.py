@@ -172,7 +172,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  acceptable_loss=10,
                                  memory_usage_limit=batch_memory_usage,
                                  channels=channels,
-                                 use_ctc=True)
+                                 use_ctc=False)
     minibatch_size = img_gen.minibatch_size
 
     print('Building model...')
@@ -251,7 +251,8 @@ if __name__ == '__main__':
     modelpath = ''
     # character classes
     alphabet = init_content[11] #+ string.lowercase +  " " # + string.uppercase + string.punctuation
-    type_model=init_content[12]
+    type_model=init_content[12]    
+    i = 13
     if "Attention" in type_model and len(init_content) >= 16:
         c1 = [int(x) for x in init_content[13].split(',')]
         c2 = [int(x) for x in init_content[14].split(',')]
@@ -260,9 +261,33 @@ if __name__ == '__main__':
         kwargs = {'CNN' : [c1,c2],
                 'Encoder' : enc,
                 'Decoder' : dec}
-        print(kwargs)
+        i = 17
     else:
         kwargs = {}
+    str_optimizer = [x for x in init_content[i].split(',')]
+    if len(str_optimizer)>1:
+        if (str_optimizer[0]=='adam'):
+            optarg = [0.001,0.9,0.999,0.00000001,0.0]
+            for q in range(1,len(str_optimizer)):
+                optarg[q-1] = float(str_optimizer[q])
+            opt = keras.optimizers.Adam(optarg[0],optarg[1],optarg[2],optarg[3], optarg[4])
+        if (str_optimizer[0]=='rmsprop'):
+            optarg = [0.001,0.9,None,0.0]
+            for q in range(1,len(str_optimizer)):
+                optarg[q-1] = float(str_optimizer[q])
+            opt = keras.optimizers.RMSprop(optarg[0],optarg[1],optarg[2],optarg[3])
+        if (str_optimizer[0]=='adadelta'):
+            optarg = [1.0,0.95,None,0.0]
+            for q in range(1,len(str_optimizer)):
+                optarg[q-1] = float(str_optimizer[q])
+            opt = keras.optimizers.Adadelta(optarg[0],optarg[1],optarg[2],optarg[3])
+        if (str_optimizer[0]=='SGD'):
+            opt = keras.optimizers.Adam(float(optarg[0]),float(optarg[1]),float(optarg[2]))
+    else:
+        opt = str_optimizer[0]
+    str_loss = init_content[i+1]
+    kwargs["loss"]=str_loss
+    kwargs["opt"]=opt
     train(run_name=run_name,start_epoch=start,stop_epoch=stop, type_model=type_model,
             img_w=image_width, img_h=image_height, val_split=val_split, minibatch_size=minibatch_size,
             max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)

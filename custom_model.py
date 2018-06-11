@@ -1,4 +1,3 @@
-import tensorflow
 import keras
 from keras import backend as K
 from keras import regularizers
@@ -60,10 +59,9 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         return Model_Dummy(input_shape, output_shape)
     return None,None
         
-def Model_Attention(input_shape, output_shape, img_gen, **kwargs):
+def Model_Attention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
     model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
-    opt = keras.optimizers.Adam(lr=0.001)
-    model.compile(loss='mse', optimizer=opt,metrics=['categorical_accuracy'])
+    model.compile(loss=loss, optimizer=opt,metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
     inputs = inp.input
     out = model.get_layer('the_output')

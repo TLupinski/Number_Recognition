@@ -15,6 +15,7 @@ from keras.layers import Input, Dense, Activation, Dropout
 from keras.layers import Reshape, Lambda
 from keras.layers.merge import add, concatenate
 from keras.models import Model
+from keras.losses import mean_squared_error, categorical_crossentropy
 from keras.layers.recurrent import GRU, LSTM
 from keras.optimizers import SGD
 from keras.utils.data_utils import get_file
@@ -76,8 +77,8 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     nb_res = 0
     nb_mot = 0
     hidden = 16 * 2
-    n_img_w = img_w//2
-    n_img_h = img_h//2
+    n_img_w = img_w//8
+    n_img_h = img_h//8
     nb_display = 2
     for i in range(step):
         wb = word_batch = next(img_gen.next_train())
@@ -86,6 +87,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
         num_proc = word_batch['the_input'].shape[0]
         enc = enc_func([word_batch['the_input'][0:num_proc]])[0]
         out = out_func([word_batch['the_input'][0:num_proc]])[0]
+        print(np.shape(out))
         if attention:
             for i in range(minibatch_size):
                 img = word_batch['the_input'][i].T
@@ -96,14 +98,19 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                 for j in range(max_str_len):
                     att = out[i][j]
                     superposed = np.copy(img)
-                    for a in range(img_w):
+                    for a in range(img_w-4):
                         for b in range(img_h):
-                            if (att[a//4]>0):
-                                superposed[b][a][0] = superposed[b][a][0]/2 + 123*att[a//4]
-                            superposed[b][a][1] = superposed[b][a][1]*(1-att[a//4])
-                            superposed[b][a][2] = superposed[b][a][2]*(1-att[a//4])
+                            n = 0
+                            if (att[a//8]>0):
+                                x = superposed[b][a][0] + att[a//8]
+                                if (x > 1.0):
+                                    n = x - 1.0
+                                    x = 1.0
+                                superposed[b][a][0] = x
+                            superposed[b][a][1] = superposed[b][a][1]-n
+                            superposed[b][a][2] = superposed[b][a][2]-n
                     subplot(max_str_len+1,1,2+j)
-                    imshow(superposed)
+                    imshow(superposed,cmap=cm.hot)
                 show()
         else:
             #Afficher les différentes couches de convolutions
@@ -134,7 +141,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                         imshow(enc[j].T, cmap=cm.gray)
                 for j in range(minibatch_size):
                     subplot(nb_display,minibatch_size,j+1+(nb_display-1)*minibatch_size)
-                    imshow(out[j].T)
+                    imshow(out[j].T, cmap=cm.hot)
                 show()
     
 
@@ -151,7 +158,7 @@ if __name__ == '__main__':
 
 
     os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
-    OUTPUT_DIR = '../RecoChiffre/data/output/'
+    OUTPUT_DIR = './data/output/'
     weight_file = "data/output/weight00.h5"
     #datafolder_name = "../Dataset/MNIST/MNIST_Training_Multi"
     #datafolder_name = "../Dataset/ORAND-CAR/Binarized_CAR-A/a_train_images/"
@@ -186,6 +193,8 @@ if __name__ == '__main__':
                 'Decoder' : dec}
     else:
         kwargs = {}
+    kwargs["loss"]='mse'
+    kwargs["opt"]='sgd'
     test(run_name=run_name,start_epoch=start, type_model=type_model,
             img_w=image_width, img_h=image_height, minibatch_size=minibatch_size,
             max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)
