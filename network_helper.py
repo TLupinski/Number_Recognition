@@ -17,6 +17,47 @@ from keras.utils import plot_model
 
 t = 0
 
+def noisy(noise_typ,image):
+    if noise_typ == "gauss":
+      shape = image.shape
+      mean = 0
+      var = 0.1
+      sigma = var**0.5
+      gauss = np.random.normal(mean,sigma,shape)
+      if len(image.shape)>2:
+        gauss = gauss.reshape(shape[0],shape[1],shape[2])
+      else:
+        gauss = gauss.reshape(shape[0],shape[1])
+      noisy = image + gauss
+      return noisy
+    elif noise_typ == "s&p":
+      s_vs_p = 0.5
+      amount = 0.03
+      out = np.copy(image)
+      # Salt mode
+      num_salt = np.ceil(amount * image.size * s_vs_p)
+      coords = [np.random.randint(0, i - 1, int(num_salt))
+              for i in image.shape]
+      out[coords] = 255
+
+      # Pepper mode
+      num_pepper = np.ceil(amount* image.size * (1. - s_vs_p))
+      coords = [np.random.randint(0, i - 1, int(num_pepper))
+              for i in image.shape]
+      out[coords] = 0
+      return out
+    elif noise_typ == "poisson":
+      vals = len(np.unique(image))
+      vals = 2 ** np.ceil(np.log2(vals))
+      noisy = np.random.poisson(image * vals) / float(vals)
+      return noisy
+    elif noise_typ =="speckle":
+      row,col,ch = image.shape
+      gauss = np.random.randn(row,col,ch)
+      gauss = gauss.reshape(row,col,ch)        
+      noisy = image + image * gauss
+      return noisy
+
 def translate_array(array,alphabet, del_spaces=False):
     """
     Translate function from classification array to string
@@ -107,7 +148,7 @@ class TextImageGenerator(keras.callbacks.Callback):
 
     def __init__(self, train_folder, img_w, img_h, downsample_factor, val_split,
                  alphabet, use_ctc=False, minibatch_size=-1, maxbatch_size=-1, 
-                 absolute_max_string_len=16, max_samples=1000,
+                 absolute_max_string_len=16, max_samples=1000, noise=None,
                  memory_usage_limit=2000000, acceptable_loss = 0, channels=1):
         self.minibatch_size = minibatch_size
         self.img_w = img_w
@@ -127,6 +168,7 @@ class TextImageGenerator(keras.callbacks.Callback):
         self.acceptable_loss = acceptable_loss
         self.use_ctc = use_ctc
         self.lock = threading.Lock()
+        self.noise = noise
         if maxbatch_size ==-1:
             self.maxbatch_size = int(memory_usage_limit / (img_w*img_h))
         if channels == 1:
@@ -202,7 +244,10 @@ class TextImageGenerator(keras.callbacks.Callback):
     def get_train_image(self, index):
         im_path = self.train_data[index]['image']
         if os.path.exists(im_path):
-            return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),127.5)-1.0
+            img = cv2.imread(im_path, self.readmode)
+            if (self.noise!=None):
+                img = noisy(self.noise,img)
+            return np.divide(np.transpose(img ,(1,0)),127.5)-1.0
         else:
             print("File not found {}".format(self.train_data[index]))
         return ""
@@ -360,7 +405,10 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
         if ctc_decode:
             dx = 0
         if n == 1:
-            out_best = list(np.argmax(out[j, :], 1))
+            out_best = list(np.argmax(out[j], 1))
+            if ctc_decode:
+                out_best = list(np.argmax(out[j,2:], 1))
+                out_best = [k for k, g in itertools.groupby(out_best)]
             scores = [1]
             outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)
             ret[j].append(outstr)

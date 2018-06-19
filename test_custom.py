@@ -66,14 +66,15 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=4,
+                                 downsample_factor=8,
                                  val_split=0,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
                                  max_samples=max_samples,
                                  acceptable_loss = 0,
                                  memory_usage_limit=batch_memory_usage,
-                                 use_ctc=use_ctc)
+                                 use_ctc=use_ctc,
+                                 noise="s&p")
     minibatch_size = img_gen.minibatch_size
     nb_samples = img_gen.train_size
     print('Batch size : ',minibatch_size)
@@ -120,13 +121,16 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
             decoded_res, scores = nt.decode_batch(test_func,word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=use_ctc, n=N)
             for j in range(num_proc):
                 source_str = word_batch['source_str'][j]
-                edit_dist,_, ops = edit_distance_backpointer(decoded_res[j][k], source_str) 
+                edit_dist,_, ops = edit_distance_backpointer(decoded_res[j][0], source_str) 
                 if edit_dist > 0 :
+                    print(source_str, decoded_res[j])
                     acc = 0
                 else :
                     acc = 1
-                accuracy_w[k] = accuracy_w[k] + acc
-                accuracy_c[k] = accuracy_c[k] + min(edit_dist, len(source_str))
+                accuracy_w[0] = accuracy_w[0] + acc
+                accuracy_c[0] = accuracy_c[0] + min(edit_dist, len(source_str))
+                nb_res = nb_res+1
+                nb_mot = nb_mot + len(source_str)
         else:
             wb = next(img_gen.next_train())
             word_batch = wb[0]

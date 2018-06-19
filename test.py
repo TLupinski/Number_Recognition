@@ -13,43 +13,43 @@ import pydot
 from tqdm import tqdm
 import time
 import pickle
+import math
 
-if True:
+def gaussian(x, c):
+    xd = float(x)
+    cd = float(c)
+    s1 = 2.0
+    s2 = 2.0
+    c1 = cd-3.0
+    c2 = cd+3.0
+    return (-(xd-c2)*(xd-c2)/(2.0*s2*s2))# - math.exp(-(x-c1)*(x-c1)/(2*s1*s1)))
+
+if False:
     history = {}
     epoch = []
-    f = open("./data/output/Attention-CARA-CNN4_64-RNN_100/metrics.pk",'rb')
+    f = open("./data/output/Attention-ORAND-BN-CNN7_64-RNN_256/metrics.pk",'rb')
     history = pickle.loads(f.read())
-    init_epoch = len(history['loss'])
+    init_epoch = len(history['loss']) - len(history['val_loss'])
     for i in range (init_epoch):
         epoch.append(i)
     f.close()
-    df=pd.DataFrame({'abs': epoch, 'train_loss': history['loss'], 'val_loss': history['val_loss'], 'train_acc': history['categorical_accuracy'], 'val_acc': history['val_categorical_accuracy']})
+    df=pd.DataFrame({'abs': epoch, 'train_loss': history['loss'][len(history['val_loss']):]})#, 'val_loss': history['val_loss']})#, 'train_acc': history['categorical_accuracy'], 'val_acc': history['val_categorical_accuracy']})
     # multiple line plot
-    plt.subplot(2,1,1)
-    plt.plot( 'abs', 'val_loss', data=df, color='red', linewidth=2)
+    #plt.subplot(2,1,1)
+    #plt.plot( 'abs', 'val_loss', data=df, color='red', linewidth=2)
     plt.plot( 'abs', 'train_loss', data=df, color='blue', linewidth=2)
     plt.xlabel('Epoch')
     plt.ylabel('Loss Function Value')
-    plt.ylim([0,0.1])
     plt.legend(loc=0)
-    plt.subplot(2,1,2)
-    plt.plot( 'abs', 'val_acc', data=df, color='red', linewidth=4)
-    plt.plot( 'abs', 'train_acc', data=df, color='blue', linewidth=4)
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.ylim([0,1.0])
-    plt.legend(loc=0)
+    #plt.subplot(2,1,2)
+    #plt.plot( 'abs', 'val_acc', data=df, color='red', linewidth=4)
+    #plt.plot( 'abs', 'train_acc', data=df, color='blue', linewidth=4)
+    #plt.xlabel('Epoch')
+    #plt.ylabel('Accuracy')
+    #plt.ylim([0,1.0])
+    #plt.legend(loc=0)
     plt.show("Figure 3")
 else :
-    a = range(1,33)
-    b = [a]
-    c = [b,b,b]
-    v = [c,c,c]
-    rsres = np.zeros(shape=(32,3,3))
-    for w in range(32):
-        for x in range(3):
-            for y in range(3):
-                rsres[w][x][y] = v[x][y][0][w]
-    print(v)
-    print(rsres)
+    for i in range(-10,10):
+        print(gaussian(i,0))
     #cm.Model_Attention((28,28),(1,11), None)
