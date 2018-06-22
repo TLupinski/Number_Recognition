@@ -191,7 +191,7 @@ def Model_ResCGRU(input_shape, img_gen):
                    name='conv3a')(res_2)
     conv_3b = Conv2D(128, (3,3), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv3b')(conv_3a)
-    conv_3r = Conv2D(128, (1,1), strides=(1,2), padding='valid',kernel_initializer='he_normal',
+    conv_3r = MaxPooling2D(pool_size(1,2), strides=(1,2), padding='valid'
                    name='conv3r')(res_2)
     res_3= add([conv_3b,conv_3r])
     # res_3 = Dropout(0.4)(res_3d)
@@ -200,8 +200,8 @@ def Model_ResCGRU(input_shape, img_gen):
                    name='conv4a')(res_3)
     conv_4b = Conv2D(256, (3,3), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv4b')(conv_4a)
-    conv_4r = Conv2D(256, (1,1), strides=(1,2),padding='valid',kernel_initializer='he_normal',
-                   name='conv4r')(res_3)
+    conv_4r = MaxPooling2D(pool_size(1,2), strides=(1,2),padding='valid'
+                   name='conv4r', use_bias=False)(res_3)
     res_4 = add([conv_4b,conv_4r])
     #res_4  = Dropout(0.4)(res_4d)
 
@@ -209,7 +209,7 @@ def Model_ResCGRU(input_shape, img_gen):
                    name='conv5a')(res_4)
     conv_5b = Conv2D(512, (3,3), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv5b')(conv_5a)
-    conv_5r = Conv2D(512, (1,1), strides=(1,2), padding='valid',kernel_initializer='he_normal',
+    conv_5r = MaxPooling2D(pool_size(1,2), strides=(1,2), padding='valid'
                    name='conv5r')(res_4)
     res_5 = add([conv_5b,conv_5r])
     conv_to_rnn_dims = ((img_w // (2)), ((img_h // (16))) * 512)

@@ -110,7 +110,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                             superposed[b][a][1] = superposed[b][a][1]-n
                             superposed[b][a][2] = superposed[b][a][2]-n
                     subplot(max_str_len+1,1,2+j)
-                    imshow(superposed,cmap=cm.hot)
+                    imshow(superposed)
                 show()
         else:
             #Afficher les différentes couches de convolutions

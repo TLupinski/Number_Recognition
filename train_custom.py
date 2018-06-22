@@ -14,10 +14,11 @@ from keras import regularizers
 from keras.backend import tf
 from keras.models import Model
 from keras.layers.recurrent import GRU, LSTM
-from keras.optimizers import SGD
 from keras.utils.data_utils import get_file
 from keras.preprocessing import image
 import keras.callbacks
+import keras.losses
+import keras.optimizers
 from keras.callbacks import History
 import cv2
 import edistance
@@ -286,8 +287,8 @@ if __name__ == '__main__':
     else:
         opt = str_optimizer[0]
     str_loss = init_content[i+1]
-    kwargs["loss"]=str_loss
-    kwargs["opt"]=opt
+    kwargs["loss"]=losses.get(str_loss)
+    kwargs["opt"]=optimizers.get(opt)
     train(run_name=run_name,start_epoch=start,stop_epoch=stop, type_model=type_model,
             img_w=image_width, img_h=image_height, val_split=val_split, minibatch_size=minibatch_size,
             max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)

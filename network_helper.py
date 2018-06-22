@@ -17,6 +17,47 @@ from keras.utils import plot_model
 
 t = 0
 
+def noisy(noise_typ,image):
+    if noise_typ == "gauss":
+      shape = image.shape
+      mean = 0
+      var = 0.1
+      sigma = var**0.5
+      gauss = np.random.normal(mean,sigma,shape)
+      if len(image.shape)>2:
+        gauss = gauss.reshape(shape[0],shape[1],shape[2])
+      else:
+        gauss = gauss.reshape(shape[0],shape[1])
+      noisy = image + gauss
+      return noisy
+    elif noise_typ == "s&p":
+      s_vs_p = 0.5
+      amount = 0.15
+      out = np.copy(image)
+      # Salt mode
+      num_salt = np.ceil(amount * image.size * s_vs_p)
+      coords = [np.random.randint(0, i - 1, int(num_salt))
+              for i in image.shape]
+      out[coords] = 255
+
+      # Pepper mode
+      num_pepper = np.ceil(amount* image.size * (1. - s_vs_p))
+      coords = [np.random.randint(0, i - 1, int(num_pepper))
+              for i in image.shape]
+      out[coords] = 0
+      return out
+    elif noise_typ == "poisson":
+      vals = len(np.unique(image))
+      vals = 2 ** np.ceil(np.log2(vals))
+      noisy = np.random.poisson(image * vals) / float(vals)
+      return noisy
+    elif noise_typ =="speckle":
+      row,col,ch = image.shape
+      gauss = np.random.randn(row,col,ch)
+      gauss = gauss.reshape(row,col,ch)        
+      noisy = image + image * gauss
+      return noisy
+
 def translate_array(array,alphabet, del_spaces=False):
     """
     Translate function from classification array to string
@@ -332,6 +373,7 @@ def ctc_lambda_decode_func(args):
     y_pred, input_length = args
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
+    y_pred = y_pred[:, 2:, :]
     return K.ctc_decode(y_pred, input_length, greedy=False,beam_width=20)
 
 def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False, n=1):
@@ -361,6 +403,8 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
             dx = 0
         if n == 1:
             out_best = list(np.argmax(out[j, :], 1))
+            if ctc_decode:
+                out_best = [k for k, g in itertools.groupby(out_best)]
             scores = [1]
             outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)
             ret[j].append(outstr)
