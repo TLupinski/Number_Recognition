@@ -32,7 +32,11 @@ def noisy(noise_typ,image):
       return noisy
     elif noise_typ == "s&p":
       s_vs_p = 0.5
+<<<<<<< HEAD
+      amount = 0.15
+=======
       amount = 0.03
+>>>>>>> aad134c4bc06a8ff8a316760b49b46e392f6aee1
       out = np.copy(image)
       # Salt mode
       num_salt = np.ceil(amount * image.size * s_vs_p)
@@ -380,6 +384,7 @@ def ctc_lambda_decode_func(args):
     y_pred, input_length = args
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
+    y_pred = y_pred[:, 2:, :]
     return K.ctc_decode(y_pred, input_length, greedy=False,beam_width=20)
 
 def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False, n=1):
@@ -408,9 +413,14 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
         if ctc_decode:
             dx = 0
         if n == 1:
+<<<<<<< HEAD
+            out_best = list(np.argmax(out[j, :], 1))
+            if ctc_decode:
+=======
             out_best = list(np.argmax(out[j], 1))
             if ctc_decode:
                 out_best = list(np.argmax(out[j,2:], 1))
+>>>>>>> aad134c4bc06a8ff8a316760b49b46e392f6aee1
                 out_best = [k for k, g in itertools.groupby(out_best)]
             scores = [1]
             outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)

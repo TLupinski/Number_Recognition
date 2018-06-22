@@ -19,6 +19,8 @@ import keras.losses
 from keras.utils.data_utils import get_file
 from keras.preprocessing import image
 import keras.callbacks
+import keras.losses
+import keras.optimizers
 from keras.callbacks import History
 import cv2
 import edistance
