@@ -32,7 +32,11 @@ def noisy(noise_typ,image):
       return noisy
     elif noise_typ == "s&p":
       s_vs_p = 0.5
+<<<<<<< HEAD
       amount = 0.15
+=======
+      amount = 0.03
+>>>>>>> aad134c4bc06a8ff8a316760b49b46e392f6aee1
       out = np.copy(image)
       # Salt mode
       num_salt = np.ceil(amount * image.size * s_vs_p)
@@ -148,7 +152,7 @@ class TextImageGenerator(keras.callbacks.Callback):
 
     def __init__(self, train_folder, img_w, img_h, downsample_factor, val_split,
                  alphabet, use_ctc=False, minibatch_size=-1, maxbatch_size=-1, 
-                 absolute_max_string_len=16, max_samples=1000,
+                 absolute_max_string_len=16, max_samples=1000, noise=None,
                  memory_usage_limit=2000000, acceptable_loss = 0, channels=1):
         self.minibatch_size = minibatch_size
         self.img_w = img_w
@@ -168,6 +172,7 @@ class TextImageGenerator(keras.callbacks.Callback):
         self.acceptable_loss = acceptable_loss
         self.use_ctc = use_ctc
         self.lock = threading.Lock()
+        self.noise = noise
         if maxbatch_size ==-1:
             self.maxbatch_size = int(memory_usage_limit / (img_w*img_h))
         if channels == 1:
@@ -243,7 +248,10 @@ class TextImageGenerator(keras.callbacks.Callback):
     def get_train_image(self, index):
         im_path = self.train_data[index]['image']
         if os.path.exists(im_path):
-            return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),127.5)-1.0
+            img = cv2.imread(im_path, self.readmode)
+            if (self.noise!=None):
+                img = noisy(self.noise,img)
+            return np.divide(np.transpose(img ,(1,0)),127.5)-1.0
         else:
             print("File not found {}".format(self.train_data[index]))
         return ""
@@ -402,8 +410,14 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
         if ctc_decode:
             dx = 0
         if n == 1:
+<<<<<<< HEAD
             out_best = list(np.argmax(out[j, :], 1))
             if ctc_decode:
+=======
+            out_best = list(np.argmax(out[j], 1))
+            if ctc_decode:
+                out_best = list(np.argmax(out[j,2:], 1))
+>>>>>>> aad134c4bc06a8ff8a316760b49b46e392f6aee1
                 out_best = [k for k, g in itertools.groupby(out_best)]
             scores = [1]
             outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)

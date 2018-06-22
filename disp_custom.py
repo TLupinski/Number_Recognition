@@ -102,13 +102,13 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                         for b in range(img_h):
                             n = 0
                             if (att[a//8]>0):
-                                x = superposed[b][a][0] + att[a//8]
+                                x = 0.5 + superposed[b][a][0]/2 + att[a//8]
                                 if (x > 1.0):
                                     n = x - 1.0
                                     x = 1.0
                                 superposed[b][a][0] = x
-                            superposed[b][a][1] = superposed[b][a][1]-n
-                            superposed[b][a][2] = superposed[b][a][2]-n
+                            superposed[b][a][1] = 0.5 + superposed[b][a][1]/2 -n
+                            superposed[b][a][2] = 0.5 + superposed[b][a][2]/2 -n
                     subplot(max_str_len+1,1,2+j)
                     imshow(superposed)
                 show()
@@ -144,7 +144,6 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                     imshow(out[j].T, cmap=cm.hot)
                 show()
     
-
 if __name__ == '__main__':
     if (len(sys.argv)<2):
         init_file = open('init_test')

@@ -6,6 +6,9 @@ from keras.layers import add, multiply, concatenate
 from keras import backend as K
 from keras.backend import print_tensor
 import keras.activations
+from keras.initializers import Initializer
+import math
+import numpy as np
 
 #Keras 2.1.0 does not support Softmax function, redefinition of Softmax layer as in Keras 2.3
 class Softmax(Layer):
@@ -245,7 +248,7 @@ class AltAttentionDecoderCell(ExtendedRNNCell):
                   kernel_initializer=self.kernel_initializer,
                   kernel_regularizer=self.kernel_regularizer, name="DenseT")
         dA = Dense(input_length,
-                  kernel_initializer=self.kernel_initializer,
+                  kernel_initializer=GaussianInit(),
                   kernel_regularizer=self.kernel_regularizer, name="DenseA")
 
         _x = dX(X)
@@ -326,13 +329,15 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
                   kernel_initializer=self.kernel_initializer,
                   kernel_regularizer=self.kernel_regularizer, name="DenseT")
         dA = Dense(input_length,
-                  kernel_initializer=self.kernel_initializer,
+                  kernel_initializer= GaussianInit(),
+                  bias_initializer = BiaisInit(),
                   kernel_regularizer=self.kernel_regularizer, name="DenseA")
         _x = dX(X)
         _E = dE(c_tm1)
         _E = Reshape(target_shape=(input_length,))(_E)
         _A = dA(a_tm1)
-        en = add([_x,_E,_A])
+        _AP = Lambda(lambda x:print_tensor(x,message='_A'))(_A)
+        en = add([_x,_E,_AP])
         en = Activation('tanh')(en)
         energy =dT(en)
         alpha = Softmax(axis=-2, name='alpha')(energy)
@@ -356,7 +361,7 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
         h = multiply([o, Activation(self.activation)(c)],name='h')
         y = Activation(self.activation, name='cellout')(W(h))
 
-        model = Model([X, h_tm1, c_tm1, alpha_tm1], [alphaD, h, c, alpha])
+        model = Model([X, h_tm1, c_tm1, alpha_tm1], [_A, h, c, alpha])
         return model
 
     def get_config(self):
@@ -498,3 +503,33 @@ class WeightedMultiply(Layer):
 #         }
 #         base_config = super(Dense, self).get_config()
 # return dict(list(base_config.items()) + list(config.items()))
+
+
+def gaussian(x, c):
+    xf = float(x)
+    cf = float(c)
+    s1 = 2.0
+    s2 = 2.0
+    c1 = cf-3.0
+    c2 = cf+5.0
+    return 10*((1.2*math.exp(-(xf-c2)*(xf-c2)/(2.0*s2*s2))) - math.exp(-(xf-c1)*(xf-c1)/(2.0*s1*s1)))
+class  GaussianInit(Initializer):
+    """Initializer that generates tensors initialized to 0.
+    """
+
+    def __call__(self, shape, dtype=None):
+        w = np.zeros(shape, dtype = dtype)
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                w[i][j] = gaussian(j,i)
+        return w
+
+class BiaisInit(Initializer):
+    """Initializer that generates tensors initialized to 0.
+    """
+
+    def __call__(self, shape, dtype=None):
+        w = np.zeros(shape, dtype = dtype)
+        for i in range(10):
+                w[i] = 0.3
+        return w

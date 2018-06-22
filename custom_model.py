@@ -69,9 +69,9 @@ def Model_Attention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
     test_func = K.function([inputs], [y_pred])
     return model, test_func
 
-def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile, **kwargs):
+def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile, loss, opt, **kwargs):
     model = TruncConvAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), filename =weightfile, **kwargs)
-    model.compile(loss='categorical_crossentropy', optimizer='adam',metrics=['categorical_accuracy'])
+    model.compile(loss=loss, optimizer=opt,metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
     inputs = inp.input
     out = model.get_layer('the_output')
@@ -168,58 +168,69 @@ def Model_ResCGRU(input_shape, img_gen):
     pool_size = 2
     rnn_size = 100
     post_rnn_fcl_size = 100
-    act = tf.nn.relu
+    act = keras.layers.LeakyReLU(alpha=0.3)
     img_w = input_shape[0]
     img_h = input_shape[1]
-    
+
     input_data = Input(name='the_input', shape=input_shape, dtype='float32')
     input_data_rs = Reshape(target_shape=input_shape+(1,))(input_data)
-    conv_1 = Conv2D(64, (5,5), padding='same',
-                   activation=act, kernel_initializer='he_normal',
+    conv_1 = Conv2D(64, (5,5), padding='same', activation=act, kernel_initializer='he_normal',
                    name='conv1')(input_data_rs)
+    conv_1 = BatchNormalization()(conv_1)
+    # conv_1 = Dropout(0.4)(conv_1)
     pool_1 =  MaxPooling2D(pool_size=(pool_size,pool_size),name='max1')(conv_1)
     conv_2a = Conv2D(64, (3,3), padding='same',
                    activation=act, kernel_initializer='he_normal',
                    name='conv2a')(pool_1)
-    conv_2b = Conv2D(64, (3,3), padding='same',
-                   activation=act, kernel_initializer='he_normal',
+    conv_2a = BatchNormalization()(conv_2a)
+    conv_2b = Conv2D(64, (3,3), padding='same', kernel_initializer='he_normal',
                    name='conv2b')(conv_2a)
+    conv_2b = BatchNormalization()(conv_2b)
     res_2 = add([pool_1,conv_2b])
-    # res_2  = Dropout(0.4)(res_2d)
+    # res_2  = Dropout(0.4)(res_2)
 
-    conv_3a = Conv2D(128, (3,3), strides=(1,2), activation=act,padding='same',kernel_initializer='he_normal',
+    conv_3a = Conv2D(128, (3,3), strides=(2,2), activation=act,padding='same',kernel_initializer='he_normal',
                    name='conv3a')(res_2)
-    conv_3b = Conv2D(128, (3,3), activation=act, padding='same',kernel_initializer='he_normal',
+    conv_3a = BatchNormalization()(conv_3a)
+    conv_3b = Conv2D(128, (3,3), padding='same',kernel_initializer='he_normal',
                    name='conv3b')(conv_3a)
-    conv_3r = MaxPooling2D(pool_size(1,2), strides=(1,2), padding='valid'
+    conv_3b = BatchNormalization()(conv_3b)
+    conv_3r = Conv2D(128, (1,1), strides=(2,2), padding='same',
                    name='conv3r')(res_2)
+    conv_3r = BatchNormalization()(conv_3r)
     res_3= add([conv_3b,conv_3r])
-    # res_3 = Dropout(0.4)(res_3d)
+    # res_3 = Dropout(0.4)(res_3)
 
-    conv_4a = Conv2D(256, (3,3), strides=(1,2), activation=act, padding='same',kernel_initializer='he_normal',
+    conv_4a = Conv2D(256, (3,3), strides=(2,2), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv4a')(res_3)
-    conv_4b = Conv2D(256, (3,3), activation=act, padding='same',kernel_initializer='he_normal',
+    conv_4a = BatchNormalization()(conv_4a)
+    conv_4b = Conv2D(256, (3,3), padding='same',kernel_initializer='he_normal',
                    name='conv4b')(conv_4a)
-    conv_4r = MaxPooling2D(pool_size(1,2), strides=(1,2),padding='valid'
-                   name='conv4r', use_bias=False)(res_3)
+    conv_4b = BatchNormalization()(conv_4b)
+    conv_4r = Conv2D(256, (1,1), strides=(2,2),padding='same',
+                   name='conv4r')(res_3)
+    conv_4r = BatchNormalization()(conv_4r)
     res_4 = add([conv_4b,conv_4r])
-    #res_4  = Dropout(0.4)(res_4d)
+    # res_4  = Dropout(0.4)(res_4)
 
     conv_5a = Conv2D(512, (3,3), strides=(1,2), activation=act, padding='same',kernel_initializer='he_normal',
                    name='conv5a')(res_4)
-    conv_5b = Conv2D(512, (3,3), activation=act, padding='same',kernel_initializer='he_normal',
+    conv_5a = BatchNormalization()(conv_5a)
+    conv_5b = Conv2D(512, (3,3), padding='same',kernel_initializer='he_normal',
                    name='conv5b')(conv_5a)
-    conv_5r = MaxPooling2D(pool_size(1,2), strides=(1,2), padding='valid'
+    conv_5b = BatchNormalization()(conv_5b)
+    conv_5r = Conv2D(512, (1,1), strides=(1,2), padding='same',
                    name='conv5r')(res_4)
+    conv_5r = BatchNormalization()(conv_5r)
     res_5 = add([conv_5b,conv_5r])
-    conv_to_rnn_dims = ((img_w // (2)), ((img_h // (16))) * 512)
+    conv_to_rnn_dims = ((img_w // (8)), ((img_h // (16))) * 512)
     rnn_input = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(res_5)
 
     # cuts down input size going into RNN:
     #rnn_input = Dense(time_dense_size, activation=act, name='dense1')(conv_rs)
 
-    rec_dropout = 0.0
-    dropout = 0.0
+    rec_dropout = 0.25
+    dropout = 0.5
     # Two layers of bidirectional GRUs
     # GRU seems to work as well, if not better than LSTM:
     gru_1  = GRU(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(rnn_input)

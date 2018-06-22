@@ -14,6 +14,8 @@ from keras import regularizers
 from keras.backend import tf
 from keras.models import Model
 from keras.layers.recurrent import GRU, LSTM
+import keras.optimizers
+import keras.losses
 from keras.utils.data_utils import get_file
 from keras.preprocessing import image
 import keras.callbacks
@@ -87,7 +89,7 @@ class HistorySaver(keras.callbacks.History):
 
     def on_train_begin(self, logs=None):
         self.epoch = []
-        if self.init_epoch == 0:
+        if self.init_epoch >= 0:
             self.history = {}
         else:
             f = open(os.path.join(self.output_dir,"metrics.pk"),'rb')
@@ -136,7 +138,7 @@ def create_sparse(labels):
     return tf.SparseTensor(indices, values, dense_shape=shape)
 
 
-def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, **kwargs):
+def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, use_ctc, **kwargs):
     """
     Train a model
 
@@ -165,7 +167,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=4,
+                                 downsample_factor=8,
                                  val_split=val_split,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
@@ -173,7 +175,8 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  acceptable_loss=10,
                                  memory_usage_limit=batch_memory_usage,
                                  channels=channels,
-                                 use_ctc=False)
+                                 use_ctc=use_ctc,
+                                 noise="s&p")
     minibatch_size = img_gen.minibatch_size
 
     print('Building model...')
@@ -183,20 +186,21 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
     testfunc = None
 
     #Start from random initialization or used saved weights
-    if start_epoch ==0:
+    if start_epoch == 0:
         model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
     else:
         dir_path = os.path.join(OUTPUT_DIR,run_name)
         model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
         weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
-        model.load_weights(weight_file)
+        model.load_weights(weight_file, by_name=True)
         #est_func = K.function([model.get_layer('the_input').input], [model.get_layer('softmax').output])
 
     #Create and set all callbacks for training
     history = HistorySaver(start_epoch)
     viz_cb = VizCallback(run_name, test_func, img_gen.next_val())
+    nan_cb = keras.callbacks.TerminateOnNaN()
     #tsboard = TensorBoardWrapper(img_gen, img_gen.get_val_steps(),log_dir='./logs',histogram_freq=1,write_grads=True, write_images=True)
-    callbacks = [history, viz_cb]
+    callbacks = [history, viz_cb, nan_cb]
 
     #Save model
     modelpath = "./data/output/"+run_name+"/model.h5"
@@ -210,13 +214,17 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                             validation_data=img_gen.next_val(),
                             validation_steps=img_gen.get_val_steps(),
                             callbacks=callbacks,
-                            initial_epoch=start_epoch)
+                            initial_epoch=start_epoch,
+                            workers=12,
+                            use_multiprocessing=True)
     else:
         hist = model.fit_generator(generator=img_gen.next_train(),
                             steps_per_epoch=img_gen.get_train_steps(),
                             epochs=stop_epoch,
                             callbacks=callbacks,
-                            initial_epoch=start_epoch)
+                            initial_epoch=start_epoch,
+                            workers=12,
+                            use_multiprocessing=True)
  
 if __name__ == '__main__':
     if (len(sys.argv)<2):
@@ -263,8 +271,10 @@ if __name__ == '__main__':
                 'Encoder' : enc,
                 'Decoder' : dec}
         i = 17
+        use_ctc = False
     else:
         kwargs = {}
+        use_ctc = True
     str_optimizer = [x for x in init_content[i].split(',')]
     if len(str_optimizer)>1:
         if (str_optimizer[0]=='adam'):
@@ -287,8 +297,8 @@ if __name__ == '__main__':
     else:
         opt = str_optimizer[0]
     str_loss = init_content[i+1]
-    kwargs["loss"]=losses.get(str_loss)
-    kwargs["opt"]=optimizers.get(opt)
+    kwargs["loss"]=keras.losses.get(str_loss)
+    kwargs["opt"]=keras.optimizers.get(opt)
     train(run_name=run_name,start_epoch=start,stop_epoch=stop, type_model=type_model,
             img_w=image_width, img_h=image_height, val_split=val_split, minibatch_size=minibatch_size,
-            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)
+            max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage,use_ctc=use_ctc, **kwargs)

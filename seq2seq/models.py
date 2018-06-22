@@ -513,8 +513,8 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True, unroll=False, stateful=False, dropout=0.0,
               CNN=None, Encoder=None, Decoder=None):
     state_transfer = False
-    wmdl = ConvAttentionSeq2Seq(CNN=CNN, Encoder=Encoder, Decoder=Decoder, bidirectional=True,input_length=input_length, input_dim=input_dim, hidden_dim=hidden_dim, output_length=output_length, output_dim=output_dim, depth=(2,1))
-    wmdl.load_weights(filename)
+    # wmdl = ConvAttentionSeq2Seq(CNN=CNN, Encoder=Encoder, Decoder=Decoder, bidirectional=True,input_length=input_length, input_dim=input_dim, hidden_dim=hidden_dim, output_length=output_length, output_dim=output_dim, depth=(2,1))
+    # wmdl.load_weights(filename)
     print("Full Model Loaded")
     if isinstance(depth, int):
         depth = (depth, depth)
@@ -541,6 +541,7 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     _input._keras_history[0].supports_masking = True
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
+    K.set_learning_phase(0)
     if not CNN==None:
         i = 1
         cpt_conv = 2
@@ -555,6 +556,7 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
             k1,k2 = CNN[1][2*i:2*i+2]
             if (n > 0):
                 cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv'+str(cpt_conv))(cnn_inner)
+                cnn_inner = BatchNormalization()(cnn_inner)
                 cpt_conv = cpt_conv + 1
                 nb_filters = n
             else:
@@ -621,10 +623,10 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     inputs = [_input]
     out = decoder(encoded)
     model = Model(inputs, out)
-    for i in range(len(model.layers)):
-        w = wmdl.get_layer(index=i).get_weights()
-        if not w==None:
-            model.get_layer(index=i).set_weights(w)
+    # for i in range(len(model.layers)):
+    #     w = wmdl.get_layer(index=i).get_weights()
+    #     if not w==None:
+    #         model.get_layer(index=i).set_weights(w)
 
     # mattcell = model.get_layer(name='the_output').get_cell(name='alt_attention_decoder_cell_d_1')
     # lmattcell = wmdl.get_layer(name='decoder').get_cell(name='alt_attention_decoder_cell_1')
@@ -693,6 +695,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     _input._keras_history[0].supports_masking = True
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
+    global_name = "ord"
     if not CNN==None:
         i = 1
         cpt_conv = 2
@@ -701,16 +704,17 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
         n = CNN[0][0]
         k1,k2 = CNN[1][0:2]
         nb_filters = n
-        cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+        cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name=global_name + 'conv1')(_inputrs)
         while i < len(CNN[0]):
             n = CNN[0][i]
             k1,k2 = CNN[1][2*i:2*i+2]
             if (n > 0):
-                cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv'+str(cpt_conv))(cnn_inner)
+                cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name=global_name + 'conv'+str(cpt_conv))(cnn_inner)
+                cnn_inner = BatchNormalization(name="bnp"+str(cpt_conv))(cnn_inner)
                 cpt_conv = cpt_conv + 1
                 nb_filters = n
             else:
-                cnn_inner = MaxPooling2D(pool_size=(k1,k2),name='max'+str(cpt_pool))(cnn_inner)
+                cnn_inner = MaxPooling2D(pool_size=(k1,k2),name=global_name + 'max'+str(cpt_pool))(cnn_inner)
                 reduction[0] = reduction[0]*k1
                 reduction[1] = reduction[1]*k2
                 cpt_pool = cpt_pool + 1
@@ -738,7 +742,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
 
     encoder = RecurrentSequential(unroll=True, stateful=stateful, 
                                 #   return_states=True, return_all_states=True,
-                                  return_sequences=True, name ='encoder')
+                                  return_sequences=True, name =global_name + 'encoder')
     encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
 
     for k in range(1, depth[0]):
@@ -746,7 +750,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
         encoder.add(LSTMCell(Encoder[k]))
 
     if bidirectional:
-        encoder = Bidirectional(encoder, merge_mode='sum', name='encoder')
+        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
         encoder.forward_layer.build(postcshape)
         encoder.backward_layer.build(postcshape)
         # patch
