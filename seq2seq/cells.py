@@ -9,36 +9,7 @@ import keras.activations
 from keras.initializers import Initializer
 import math
 import numpy as np
-
-#Keras 2.1.0 does not support Softmax function, redefinition of Softmax layer as in Keras 2.3
-class Softmax(Layer):
-    """Softmax activation function.
-    # Input shape
-        Arbitrary. Use the keyword argument `input_shape`
-        (tuple of integers, does not include the samples axis)
-        when using this layer as the first layer in a model.
-    # Output shape
-        Same shape as the input.
-    # Arguments
-        axis: Integer, axis along which the softmax normalization is applied.
-    """
-
-    def __init__(self, axis=-1, **kwargs):
-        super(Softmax, self).__init__(**kwargs)
-        self.supports_masking = True
-        self.axis = axis
-
-    def call(self, inputs):
-        return activations.softmax(inputs, axis=self.axis)
-
-    def get_config(self):
-        config = {'axis': self.axis}
-        base_config = super(Softmax, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
-
-    def compute_output_shape(self, input_shape):
-        return input_shape
-
+from activations_custom import Softmax, Smoothmax, Sharpmax
 
 class LSTMDecoderCell(ExtendedRNNCell):
 
@@ -336,11 +307,10 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
         _E = dE(c_tm1)
         _E = Reshape(target_shape=(input_length,))(_E)
         _A = dA(a_tm1)
-        _AP = Lambda(lambda x:print_tensor(x,message='_A'))(_A)
-        en = add([_x,_E,_AP])
+        en = add([_x,_E,_A])
         en = Activation('tanh')(en)
         energy =dT(en)
-        alpha = Softmax(axis=-2, name='alpha')(energy)
+        alpha = Sharpmax(axis=-2, sharpenning=2.0, name='alpha')(energy)
         alphaD = Identity(name='alphaD')(alpha)
 
         _X = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=(1, 1)), output_shape=(input_dim,))([alphaD, X])
@@ -361,7 +331,7 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
         h = multiply([o, Activation(self.activation)(c)],name='h')
         y = Activation(self.activation, name='cellout')(W(h))
 
-        model = Model([X, h_tm1, c_tm1, alpha_tm1], [_A, h, c, alpha])
+        model = Model([X, h_tm1, c_tm1, alpha_tm1], [alphaD, h, c, alpha])
         return model
 
     def get_config(self):

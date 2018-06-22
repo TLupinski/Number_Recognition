@@ -19,8 +19,6 @@ from seq2seq.cells import LSTMDecoderCell, AttentionDecoderCell
 import recurrentshop
 from recurrentshop import RecurrentSequential
 from recurrentshop.engine import _OptionalInputPlaceHolder
-import attention
-from attention import Attention
 
 '''
 Defined custom models used in train_custom and test_custom
@@ -49,6 +47,8 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         return Model_Attention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='DisplayAttention'):
         return Model_DisplayAttention(input_shape, output_shape, img_gen,weight_file, **kwargs)
+    if (type_model=='CTCAttention'):
+        return Model_CTCAttention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='CNNRNNCTC'):
         return Model_CNN_RNN_CTC(input_shape, img_gen)
     if (type_model=='ResCGRUCTC'):
@@ -67,7 +67,16 @@ def Model_Attention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
     out = model.get_layer('the_output')
     y_pred = out.output
     test_func = K.function([inputs], [y_pred])
-    return model, test_func
+    return model, test_func, None
+
+def Model_CTCAttention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
+    model, callback = ConvJointCTCAttentionSeq2Seq(bidirectional=True, att_loss = loss, glob_opt = opt, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
+    inp = model.get_layer('the_input')
+    inputs = inp.input
+    out = model.get_layer('the_output')
+    y_pred = out.output
+    test_func = K.function([inputs], [y_pred])
+    return model, test_func, callback
 
 def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile, loss, opt, **kwargs):
     model = TruncConvAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), filename =weightfile, **kwargs)
@@ -77,7 +86,7 @@ def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile, loss,
     out = model.get_layer('the_output')
     y_pred = out.output[1]
     test_func = K.function([inputs], [y_pred])
-    return model, test_func
+    return model, test_func, None
 
 def Model_CNN_RNN_CTC(input_shape, img_gen):
     # Input Parameters
@@ -154,7 +163,7 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
 
     test_func = K.function([input_data], [y_pred])
 
-    return model, test_func
+    return model, test_func, None
 
 def Model_ResCGRU(input_shape, img_gen):
     # Input Parameters
@@ -265,7 +274,7 @@ def Model_ResCGRU(input_shape, img_gen):
 
     # captures output of softmax so we can decode the output during visualization
     test_func = K.function([input_data], [y_pred])
-    return model, test_func
+    return model, test_func, None
 
 def Model_VHLSTM(input_shape, img_gen):
     # Input Parameters
@@ -353,6 +362,7 @@ def Model_VHLSTM(input_shape, img_gen):
 
     return model, test_func
 
+# Not working
 def Model_AttentionBiLSTM(input_shape, img_gen):
     output_dim = 92
     output_length = 1
@@ -412,17 +422,17 @@ def Model_AttentionBiLSTM(input_shape, img_gen):
     gru_2 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru2', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
     gru_2b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru2_b', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
     gru_merged2 = add([gru_2,gru_2b])
-    attention = Attention(RNN(rnn_size, return_sequences=True))(gru_merged2)
+ #   attention = Attention(RNN(rnn_size, return_sequences=True))(gru_merged2)
 
-    model = Model(inputs=[_input], outputs=[attention])
+  #  model = Model(inputs=[_input], outputs=[attention])
 
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     adam = keras.optimizers.Adam(lr=learning_rate, beta_1=momentum1, beta_2=momentum2)
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=adam, metrics=['accuracy'])
 
     # captures output of softmax so we can decode the output during visualization
-    test_func = K.function(inputs, [y_pred])
-    return model, test_func
+    #test_func = K.function(inputs, [y_pred])
+    return None, None
 
 def Model_Dummy(input_shape, output_shape):
     input_data = Input(name='the_input', shape=input_shape, dtype='float32')

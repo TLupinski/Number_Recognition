@@ -87,7 +87,7 @@ class HistorySaver(keras.callbacks.History):
 
     def on_train_begin(self, logs=None):
         self.epoch = []
-        if self.init_epoch >= 0:
+        if self.init_epoch <= 1:
             self.history = {}
         else:
             f = open(os.path.join(self.output_dir,"metrics.pk"),'rb')
@@ -185,10 +185,10 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
 
     #Start from random initialization or used saved weights
     if start_epoch == 0:
-        model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
+        model, test_func, model_cb = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
     else:
         dir_path = os.path.join(OUTPUT_DIR,run_name)
-        model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
+        model, test_func,model_cb = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
         weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
         model.load_weights(weight_file, by_name=True)
         #est_func = K.function([model.get_layer('the_input').input], [model.get_layer('softmax').output])
@@ -199,10 +199,12 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
     nan_cb = keras.callbacks.TerminateOnNaN()
     #tsboard = TensorBoardWrapper(img_gen, img_gen.get_val_steps(),log_dir='./logs',histogram_freq=1,write_grads=True, write_images=True)
     callbacks = [history, viz_cb, nan_cb]
+    # if not model_cb is None:
+    #     callbacks = callbacks + [model_cb]
 
     #Save model
     modelpath = "./data/output/"+run_name+"/model.h5"
-    model.save(modelpath,overwrite=True)
+    #model.save(modelpath,overwrite=True)
 
     #Start training
     if (val_split > 0.0):
@@ -269,7 +271,7 @@ if __name__ == '__main__':
                 'Encoder' : enc,
                 'Decoder' : dec}
         i = 17
-        use_ctc = False
+        use_ctc = True
     else:
         kwargs = {}
         use_ctc = True

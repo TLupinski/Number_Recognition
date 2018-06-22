@@ -24,14 +24,20 @@ def gaussian(x, c):
     c2 = cd+3.0
     return (-(xd-c2)*(xd-c2)/(2.0*s2*s2))# - math.exp(-(x-c1)*(x-c1)/(2*s1*s1)))
 
-if False:
+if True:
     history = {}
     epoch = []
-    f = open("./data/output/Attention-ORAND-BN-CNN7_64-RNN_256/metrics.pk",'rb')
+    f = open("./data/output/Attention-ORANDN-CNN5_64-RNN_256/metrics.pk",'rb')
     history = pickle.loads(f.read())
     init_epoch = len(history['loss']) - len(history['val_loss'])
-    for i in range (init_epoch):
-        epoch.append(i)
+    p = history['val_categorical_accuracy']
+    max = 0
+    amax = 0
+    for i in range (len(p)):
+        if p[i] > max:
+            max = p[i]
+            amax = i
+    print(amax, max)
     f.close()
     df=pd.DataFrame({'abs': epoch, 'train_loss': history['loss'][len(history['val_loss']):]})#, 'val_loss': history['val_loss']})#, 'train_acc': history['categorical_accuracy'], 'val_acc': history['val_categorical_accuracy']})
     # multiple line plot

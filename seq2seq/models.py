@@ -5,7 +5,10 @@ from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, TimeDistributed, Bidirectional, Input, Reshape, Lambda, concatenate
 from keras.layers.convolutional import Conv2D, MaxPooling2D
 from keras.layers.normalization import BatchNormalization
+from keras.callbacks import Callback
 import keras.backend as K
+import network_helper as nh
+import numpy as np
 
 '''
 Papers:
@@ -452,7 +455,7 @@ def SimpleConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None
         raise TypeError
     if hidden_dim is None:
         hidden_dim = output_dim
-    conv_fiter=16
+    conv_filter=16
     kernel_size = (3,3)
     input_shape = (shape[1], shape[2], 1)
     pool_size = 2
@@ -513,8 +516,8 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True, unroll=False, stateful=False, dropout=0.0,
               CNN=None, Encoder=None, Decoder=None):
     state_transfer = False
-    # wmdl = ConvAttentionSeq2Seq(CNN=CNN, Encoder=Encoder, Decoder=Decoder, bidirectional=True,input_length=input_length, input_dim=input_dim, hidden_dim=hidden_dim, output_length=output_length, output_dim=output_dim, depth=(2,1))
-    # wmdl.load_weights(filename)
+    wmdl = ConvAttentionSeq2Seq(CNN=CNN, Encoder=Encoder, Decoder=Decoder, bidirectional=True,input_length=input_length, input_dim=input_dim, hidden_dim=hidden_dim, output_length=output_length, output_dim=output_dim, depth=(2,1))
+    wmdl.load_weights(filename)
     print("Full Model Loaded")
     if isinstance(depth, int):
         depth = (depth, depth)
@@ -623,10 +626,10 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     inputs = [_input]
     out = decoder(encoded)
     model = Model(inputs, out)
-    # for i in range(len(model.layers)):
-    #     w = wmdl.get_layer(index=i).get_weights()
-    #     if not w==None:
-    #         model.get_layer(index=i).set_weights(w)
+    for i in range(len(model.layers)):
+        w = wmdl.get_layer(index=i).get_weights()
+        if not w==None:
+            model.get_layer(index=i).set_weights(w)
 
     # mattcell = model.get_layer(name='the_output').get_cell(name='alt_attention_decoder_cell_d_1')
     # lmattcell = wmdl.get_layer(name='decoder').get_cell(name='alt_attention_decoder_cell_1')
@@ -636,7 +639,6 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     # for name, weight in plop:
     #     if not weight==[]:
     #         mattcell.get_layer(name=name).set_weights(weight)
-    #model.get_layer(name='the_output').get_cell(name='alt_attention_decoder_cell_d_1').get_cell(name='alt_attention_decoder_cell_1').get_weights())
     return model
 
 def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
@@ -788,3 +790,184 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     output = Softmax(name = 'the_output')(decoded)
     model = Model(inputs, output)
     return model
+
+class VaryingLossWeights(Callback):
+    '''
+        Callback used to varying loss weight during training
+        At start, loss weight is [0.2,0.8] and it come to [0.8,0.2]
+        for [AttentionLoss,CTC loss] resp.
+    '''
+
+    def __init__(self, lamb, ilamb):
+        self.l1 = lamb
+        self.l2 = ilamb
+
+    def on_epoch_end(self, epoch, logs={}):
+        if (epoch < 40):
+            self.alpha = self.alpha + 0.015
+            self.beta = self.beta - 0.015
+        
+def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
+              batch_size=None, input_shape=None, input_length=None,
+              input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
+              unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
+              CNN=None, Encoder=None, Decoder=None, glob_opt="adam", att_loss="categorical_crossentropy"):
+    '''
+
+    The  math:
+
+            Encoder:
+            X = Input Sequence of length m.
+            H = Bidirection_LSTM(X); Note that here the LSTM has return_sequences = True,
+            so H is a sequence of vectors of length m.
+
+            Decoder:
+    y(i) = LSTM(s(i-1), y(i-1), v(i)); Where s is the hidden state of the LSTM (h and c)
+    and v (called the context vector) is a weighted sum over H:
+
+    v(i) =  sigma(j = 0 to m-1)  alpha(i, j) * H(j)
+
+    The weight alpha[i, j] for each hj is computed as follows:
+    energy = a(s(i-1), H(j))
+    alpha = softmax(energy)
+    Where a is a feed forward network.
+
+    '''
+    K.set_learning_phase(1)
+    if isinstance(depth, int):
+        depth = (depth, depth)
+    if batch_input_shape:
+        shape = batch_input_shape
+    elif input_shape:
+        shape = (batch_size,) + input_shape
+    elif input_dim:
+        if input_length:
+            shape = (batch_size,) + (input_length,) + (input_dim,)
+        else:
+            shape = (batch_size,) + (None,) + (input_dim,)
+    else:
+        # TODO Proper error message
+        raise TypeError
+    if hidden_dim is None:
+        hidden_dim = output_dim
+    conv_filters = 16
+    pool_size = 2
+    input_shape = (shape[1], shape[2], 1)
+    img_w = input_shape[0]
+    img_h = input_shape[1]
+    _input = Input(batch_shape=shape, name='the_input')
+    _input._keras_history[0].supports_masking = True
+    #Reshaping input for convlayer
+    _inputrs = Reshape(target_shape=input_shape)(_input)
+    global_name = "ord"
+    if not CNN==None:
+        i = 1
+        cpt_conv = 2
+        cpt_pool = 1
+        reduction = [1,1]
+        n = CNN[0][0]
+        k1,k2 = CNN[1][0:2]
+        nb_filters = n
+        cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name=global_name + 'conv1')(_inputrs)
+        while i < len(CNN[0]):
+            n = CNN[0][i]
+            k1,k2 = CNN[1][2*i:2*i+2]
+            if (n > 0):
+                cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name=global_name + 'conv'+str(cpt_conv))(cnn_inner)
+                cnn_inner = BatchNormalization(name="bnp"+str(cpt_conv))(cnn_inner)
+                cpt_conv = cpt_conv + 1
+                nb_filters = n
+            else:
+                cnn_inner = MaxPooling2D(pool_size=(k1,k2),name=global_name + 'max'+str(cpt_pool))(cnn_inner)
+                reduction[0] = reduction[0]*k1
+                reduction[1] = reduction[1]*k2
+                cpt_pool = cpt_pool + 1
+            i = i+1
+    else :
+        # First conv2D plus max pooling 2D
+        conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
+        pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
+        # Second conv2d plus max pooling 2D
+        conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
+        pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
+        conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
+        pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
+        cnn_inner = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
+
+    # Reshape to correct rnn inputs
+    conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
+    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
+    postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
+    if Encoder==None:
+        Encoder=[hidden_dim]*depth[0]
+    else:
+        if len(Encoder)<depth[0]:
+            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
+
+    encoder = RecurrentSequential(unroll=True, stateful=stateful, 
+                                #   return_states=True, return_all_states=True,
+                                  return_sequences=True, name =global_name + 'encoder')
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
+
+    for k in range(1, depth[0]):
+        encoder.add(Dropout(dropout))
+        encoder.add(LSTMCell(Encoder[k]))
+
+    if bidirectional:
+        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
+        encoder.forward_layer.build(postcshape)
+        encoder.backward_layer.build(postcshape)
+        # patch
+        encoder.layer = encoder.forward_layer
+
+    #encoded = encoder(cnn_out)
+    if (state_transfer):
+        encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
+        encoder_states._keras_shape = encoded_outputs._keras_shape
+        encoded = concatenate([encoded_outputs,encoder_states], axis=1)
+    else :
+        encoded = encoder(cnn_out)
+
+    #Attention Decoder Part
+    if Decoder==None:
+        Decoder=[hidden_dim]*depth[1]
+    else:
+        if len(Decoder)<depth[1]:
+            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
+    
+    decoder = RecurrentSequential(decode=True, output_length=output_length,
+                                  unroll=unroll, stateful=stateful, name='decoder')
+    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
+    if depth[1] == 1:
+        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+    else:
+        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        for k in range(depth[1] - 2):
+            decoder.add(Dropout(dropout))
+            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
+        decoder.add(Dropout(dropout))
+        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
+    decoded = decoder(encoded)
+    output_att = Softmax(name = 'the_output')(decoded)
+
+    #CTC Part
+        #Supplementary inputs needed for CTC
+    labels = Input(name='the_labels', shape=[output_length], dtype='float32')
+    input_length = Input(name='input_length', shape=[1], dtype='int64')
+    label_length = Input(name='label_length', shape=[1], dtype='int64')
+
+    encoded_pred = Dense(output_dim, kernel_initializer='he_normal',
+                  name='dense2')(encoded)
+    y_pred = Softmax(name='the_output_ctc')(encoded_pred)
+    output_ctc = Lambda(nh.ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
+
+    inputs = [_input, labels, input_length, label_length]
+    model = Model(inputs, [output_att, output_ctc])
+    lamb = 0.8
+
+    def ctc_loss(y_true,y_pred):
+        return y_pred
+        
+    mets = {'the_output':'categorical_accuracy'}
+    model.compile(glob_opt, loss=[att_loss,ctc_loss], loss_weights=[0.8,0.2], metrics = mets)
+    return model, None

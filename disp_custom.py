@@ -35,6 +35,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     if K.image_data_format() == 'channels_first':
         print('NOT IMPLEMENTED !!!')
 
+    use_ctc = False
     input_shape = (img_w, img_h)
     print('Build text image generator')
     img_gen = TextImageGenerator(train_folder=datafolder_name,
@@ -55,7 +56,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
 
     dir_path = os.path.join(OUTPUT_DIR,run_name)
     weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
-    model, test_func = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, weight_file, **kwargs)
+    model, test_func, _ = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, weight_file, **kwargs)
     #print 'Compiling model'
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     #model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
@@ -77,9 +78,9 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     nb_res = 0
     nb_mot = 0
     hidden = 16 * 2
-    n_img_w = img_w//8
-    n_img_h = img_h//8
-    nb_display = 2
+    n_img_w = img_w//2
+    n_img_h = img_h//16
+    nb_display = 3
     for i in range(step):
         wb = word_batch = next(img_gen.next_train())
         word_batch = wb[0]
@@ -87,6 +88,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
         num_proc = word_batch['the_input'].shape[0]
         enc = enc_func([word_batch['the_input'][0:num_proc]])[0]
         out = out_func([word_batch['the_input'][0:num_proc]])[0]
+        #decoded_res, scores = nt.decode_batch(out_func,word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=use_ctc, n=1)
         print(np.shape(out))
         if attention:
             for i in range(minibatch_size):
@@ -129,18 +131,19 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                 show()
             #Afficher les séquences comme des images
             else:
-                out = np.reshape(out, (minibatch_size,max_str_len,11))
-                for j in range(minibatch_size):
+                display_size = 5
+                out = np.reshape(out[:display_size], (display_size,max_str_len,11))
+                for j in range(display_size):
                     img = word_batch['the_input'][j]
                     img = np.repeat(np.reshape(img,np.shape(img)+(1,)),3,axis=-1)
-                    subplot(nb_display,minibatch_size,j+1)
+                    subplot(nb_display,display_size,j+1)
                     imshow(word_batch['the_input'][j].T, cmap=cm.gray)
                 if nb_display == 3:
-                    for j in range(minibatch_size):
-                        subplot(nb_display,minibatch_size,j+1+minibatch_size)
+                    for j in range(display_size):
+                        subplot(nb_display,display_size,j+1+display_size)
                         imshow(enc[j].T, cmap=cm.gray)
-                for j in range(minibatch_size):
-                    subplot(nb_display,minibatch_size,j+1+(nb_display-1)*minibatch_size)
+                for j in range(display_size):
+                    subplot(nb_display,display_size,j+1+(nb_display-1)*display_size)
                     imshow(out[j].T, cmap=cm.hot)
                 show()
     

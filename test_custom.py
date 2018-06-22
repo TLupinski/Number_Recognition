@@ -87,7 +87,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     # out = model.get_layer('the_output')
     # y_pred = out.output
     # test_func = K.function([inputs], [y_pred])
-    model, test_func = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen, **kwargs)
+    model, test_func, _ = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen, **kwargs)
     weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
     model.load_weights(weight_file)
 
@@ -149,7 +149,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
                             smin[l] = edit_dist
                             amin[l] = k
                             omin[l] = ops
-                #stats = complete_states(stats, omin[0],decoded_res[j][k], source_str)
+                stats = complete_states(stats, omin[N-1],decoded_res[j][amin[l]], source_str)
                 for k in range(N):
                     edit_dist = smin[k]
                     if edit_dist > 0 :
@@ -166,6 +166,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
         print('Top ',k+1)
         print('Precision mot : ',accuracy_w[k])
         print('Precision caractere : ',accuracy_c[k])
+    print(stats)
 
 
 if __name__ == '__main__':

@@ -289,7 +289,8 @@ class TextImageGenerator(keras.callbacks.Callback):
             input_length = np.zeros([size, 1])
             label_length = np.zeros([size, 1])
             source_str = []
-            labels = np.ones([size, self.absolute_max_string_len])
+            labels_ctc = np.ones([size, self.absolute_max_string_len])
+            labels = np.zeros([size, self.absolute_max_string_len, len(self.alphabet)])
         else:
             labels = np.zeros([size, self.absolute_max_string_len, len(self.alphabet)])
         
@@ -308,17 +309,19 @@ class TextImageGenerator(keras.callbacks.Callback):
                 input_length[i] = self.img_w // self.downsample_factor-2
                 label_length[i] = len(text)
                 source_str.append(text)
-                labels[i, 0:len(text)] = text_to_labels(text, self.alphabet)
+                labels_ctc[i, 0:len(text)] = text_to_labels(text, self.alphabet)
+                labels[i] = text_to_labels(text, self.alphabet, self.absolute_max_string_len)
             else:
                 labels[i] = text_to_labels(text, self.alphabet, self.absolute_max_string_len)
         X_data = np.array(X_data)
         if self.use_ctc:
             inputs = {'the_input': X_data,
-                      'the_labels': labels,
+                      'the_labels': labels_ctc,
                       'input_length': input_length,
                       'label_length': label_length,
                       'source_str': source_str}  # used for visualization only
-            outputs = {'ctc': np.zeros([size])}  # dummy data for dummy loss function
+            outputs = {'the_output': labels ,
+                      'ctc': np.zeros([size])}  # dummy data for dummy loss function
         else:
             labels = np.array(labels)
             inputs = {'the_input': X_data}
