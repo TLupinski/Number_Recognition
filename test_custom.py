@@ -6,7 +6,7 @@ import codecs
 import re
 import datetime
 import edistance
-from edistance import edit_distance_backpointer
+from edistance import edit_distance, edit_distance_backpointer
 import numpy as np
 import pylab
 from pylab import *
@@ -44,7 +44,7 @@ def complete_states(stats, op, str1, str2):
             stats[10][x] = stats[10][x] + 1
     return stats
 
-def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, **kwargs):
+def test(run_name, img_w, img_h, start_epoch, use_ctc, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, **kwargs):
     """
     Train a model
 
@@ -59,7 +59,6 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     if K.image_data_format() == 'channels_first':
         print('NOT IMPLEMENTED !!!')
 
-    use_ctc=False
     input_shape = (img_w, img_h)
     print('Build text image generator')
     img_gen = TextImageGenerator(train_folder=datafolder_name,
@@ -95,9 +94,10 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     #model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
 
-    # input_data = model.get_layer('the_input').output
-    # y_pred = model.get_layer('the_output').output
-    # test_func = K.function([input_data], [y_pred])
+    input_data = model.get_layer('the_input').output
+    y_pred1 = model.get_layer('the_output').output
+    y_pred2 = model.get_layer('the_output_ctc').output
+    test_func = [K.function([input_data], [y_pred1]),K.function([input_data], [y_pred2])]
 
     #print(model.summary())
     step = nb_samples//minibatch_size
@@ -115,20 +115,21 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     false_cpt = 0
     stats = []
     for i in range(step):
-        if (use_ctc):
+        if (False):
             word_batch = next(img_gen.next_train())[0]
             num_proc = word_batch['the_input'].shape[0]
-            decoded_res, scores = nt.decode_batch(test_func,word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=use_ctc, n=N)
+            decoded_res1, _ = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=False, n=N)
+            decoded_res2, _ = nt.decode_batch(test_func[1],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
             for j in range(num_proc):
                 source_str = word_batch['source_str'][j]
-                edit_dist,_, ops = edit_distance_backpointer(decoded_res[j][0], source_str) 
-                if edit_dist > 0 :
-                    print(source_str, decoded_res[j])
-                    acc = 0
-                else :
+                edit_dist1, _ = edit_distance(decoded_res1[j][0], source_str) 
+                edit_dist2, _ = edit_distance(decoded_res2[j][0], source_str)
+                if edit_dist1 == 0 or edit_dist2 == 0:
                     acc = 1
+                else :
+                    acc = 0
                 accuracy_w[0] = accuracy_w[0] + acc
-                accuracy_c[0] = accuracy_c[0] + min(edit_dist, len(source_str))
+                accuracy_c[0] = accuracy_c[0] + min(min(edit_dist1,edit_dist2), len(source_str))
                 nb_res = nb_res+1
                 nb_mot = nb_mot + len(source_str)
         else:
@@ -136,20 +137,28 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
             word_batch = wb[0]
             out_batch = wb[1]
             num_proc = word_batch['the_input'].shape[0]
-            decoded_res, scores = nt.decode_batch(test_func,word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=use_ctc, n=N)
+            decoded_res1, scores1 = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=False, n=N)
+            decoded_res2, scores2 = nt.decode_batch(test_func[1],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
             for j in range(num_proc):
                 smin = [100000000]*N
                 amin = [-1]*N
                 omin = [[]]*N
                 source_str = nt.translate_array(out_batch['the_output'][j],alphabet, True)
                 for k in range(N):
-                    edit_dist,_, ops = edit_distance_backpointer(decoded_res[j][k], source_str)
+                    edit_dist1,_, ops1 = edit_distance_backpointer(decoded_res1[j][k], source_str)
+                    edit_dist2,_, ops2 = edit_distance_backpointer(decoded_res2[j][k], source_str)
+                    if edit_dist1 > edit_dist2:
+                        edit_dist = edit_dist2
+                        ops = ops2
+                    else:
+                        edit_dist = edit_dist1
+                        ops = ops1
                     for l in range(k,N):
                         if (edit_dist<smin[l]):
                             smin[l] = edit_dist
                             amin[l] = k
                             omin[l] = ops
-                stats = complete_states(stats, omin[N-1],decoded_res[j][amin[l]], source_str)
+                #stats = complete_states(stats, omin[N-1],decoded_res1[j][amin[l]], source_str)
                 for k in range(N):
                     edit_dist = smin[k]
                     if edit_dist > 0 :
@@ -166,7 +175,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
         print('Top ',k+1)
         print('Precision mot : ',accuracy_w[k])
         print('Precision caractere : ',accuracy_c[k])
-    print(stats)
+    #print(stats)
 
 
 if __name__ == '__main__':
@@ -218,9 +227,38 @@ if __name__ == '__main__':
         print(kwargs)
     else:
         kwargs = {}
-    kwargs['loss']='mse'
-    kwargs['opt']='sgd'
-    test(run_name=run_name,start_epoch=start, type_model=type_model,
+    if "CTC" in type_model:
+        use_ctc=True
+    test(run_name=run_name,start_epoch=start, type_model=type_model, use_ctc=use_ctc,
             img_w=image_width, img_h=image_height, minibatch_size=minibatch_size,
             max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage, **kwargs)
 
+###            
+            # wb = next(img_gen.next_train())
+            # word_batch = wb[0]
+            # out_batch = wb[1]
+            # num_proc = word_batch['the_input'].shape[0]
+            # decoded_res, scores = nt.decode_batch(test_func,word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=use_ctc, n=N)
+            # for j in range(num_proc):
+            #     smin = [100000000]*N
+            #     amin = [-1]*N
+            #     omin = [[]]*N
+            #     source_str = nt.translate_array(out_batch['the_output'][j],alphabet, True)
+            #     for k in range(N):
+            #         edit_dist,_, ops = edit_distance_backpointer(decoded_res[j][k], source_str)
+            #         for l in range(k,N):
+            #             if (edit_dist<smin[l]):
+            #                 smin[l] = edit_dist
+            #                 amin[l] = k
+            #                 omin[l] = ops
+            #     stats = complete_states(stats, omin[N-1],decoded_res[j][amin[l]], source_str)
+            #     for k in range(N):
+            #         edit_dist = smin[k]
+            #         if edit_dist > 0 :
+            #             acc = 0
+            #         else :
+            #             acc = 1
+            #         accuracy_w[k] = accuracy_w[k] + acc
+            #         accuracy_c[k] = accuracy_c[k] + min(edit_dist, len(source_str))
+            #     nb_res = nb_res+1
+            #     nb_mot = nb_mot + len(source_str)

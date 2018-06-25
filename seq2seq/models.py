@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from recurrentshop import LSTMCell, RecurrentSequential, Identity
 from .cells import Softmax, LSTMDecoderCell, AttentionDecoderCell, AltAttentionDecoderCell, AltAttentionDecoderCellD
+import keras
 from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, TimeDistributed, Bidirectional, Input, Reshape, Lambda, concatenate
 from keras.layers.convolutional import Conv2D, MaxPooling2D
@@ -9,6 +10,20 @@ from keras.callbacks import Callback
 import keras.backend as K
 import network_helper as nh
 import numpy as np
+
+#Loss function wrapper used to weight the loss output with a variable weight
+def weighted_loss_init(loss_func, loss_weight):
+    def weighted_loss(y_true,y_pred):
+        return loss_func(y_true,y_pred) * loss_weight
+    return weighted_loss
+    
+#Dummy function to pass the ctc loss computed before as the true loss
+def ctc_loss(y_true, y_pred):
+    return y_pred
+
+#Dummy function to not count ctc decoded output into the loss calculation
+def dum_loss(y_true,y_pred):
+    return K.variable(0.0)
 
 '''
 Papers:
@@ -517,7 +532,7 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
               CNN=None, Encoder=None, Decoder=None):
     state_transfer = False
     wmdl = ConvAttentionSeq2Seq(CNN=CNN, Encoder=Encoder, Decoder=Decoder, bidirectional=True,input_length=input_length, input_dim=input_dim, hidden_dim=hidden_dim, output_length=output_length, output_dim=output_dim, depth=(2,1))
-    wmdl.load_weights(filename)
+    wmdl.load_weights(filename, by_name=True)
     print("Full Model Loaded")
     if isinstance(depth, int):
         depth = (depth, depth)
@@ -791,46 +806,50 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     model = Model(inputs, output)
     return model
 
-class VaryingLossWeights(Callback):
+class VLW(Callback):
     '''
         Callback used to varying loss weight during training
         At start, loss weight is [0.2,0.8] and it come to [0.8,0.2]
         for [AttentionLoss,CTC loss] resp.
     '''
 
-    def __init__(self, lamb, ilamb):
-        self.l1 = lamb
-        self.l2 = ilamb
+    def __init__(self, a, b, c, d):
+        self.alpha = a
+        self.beta = b
+        self.max_epoch = c
+        self.delta = d
 
     def on_epoch_end(self, epoch, logs={}):
-        if (epoch < 40):
-            self.alpha = self.alpha + 0.015
-            self.beta = self.beta - 0.015
+        if (epoch < self.max_epoch):
+            K.set_value(self.alpha, K.get_value(self.alpha) + self.delta)
+            K.set_value(self.beta, K.get_value(self.beta) - self.delta)
+
+        
+def ConvJointCTCFrozenAttentionSeq2Seq(filename, opt, loss, **kwargs):
+    model, _ , _ = ConvJointCTCAttentionSeq2Seq(**kwargs)
+    model.load_weights(filename,by_name=True)
+    for i in range(29):
+        layer = model.get_layer(index=i)
+        if not "ctc" in layer.name and not "dense2" in layer.name:
+            layer.trainable = False
+    mets = {'the_output':'categorical_accuracy'}
+    model.compile(opt, loss=[loss,ctc_loss, dum_loss], loss_weights=[0.0,1.0,0.0], metrics = mets)
+    return model, None, None
         
 def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
               unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
-              CNN=None, Encoder=None, Decoder=None, glob_opt="adam", att_loss="categorical_crossentropy"):
+              CNN=None, Encoder=None, Decoder=None, glob_opt="adam", att_loss=keras.losses.mean_squared_error):
     '''
+    This is the same network as the ConvAttetionSeq2Seq but with another branc added after the Encoder:
+    One dense layer to convert Encoder output into probabilities and a CTC layer to decode the probabilities.
 
-    The  math:
+    The network hence has two output and two loss function:
+        A loss for the attention branch which you can choose during initialization
+        CTC_Loss for the CTC branch
 
-            Encoder:
-            X = Input Sequence of length m.
-            H = Bidirection_LSTM(X); Note that here the LSTM has return_sequences = True,
-            so H is a sequence of vectors of length m.
-
-            Decoder:
-    y(i) = LSTM(s(i-1), y(i-1), v(i)); Where s is the hidden state of the LSTM (h and c)
-    and v (called the context vector) is a weighted sum over H:
-
-    v(i) =  sigma(j = 0 to m-1)  alpha(i, j) * H(j)
-
-    The weight alpha[i, j] for each hj is computed as follows:
-    energy = a(s(i-1), H(j))
-    alpha = softmax(energy)
-    Where a is a feed forward network.
+    For weighting the loss function, a callback is used to transfer from [0.2,0.8] to [0.8,0.2]
 
     '''
     K.set_learning_phase(1)
@@ -959,15 +978,20 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
     encoded_pred = Dense(output_dim, kernel_initializer='he_normal',
                   name='dense2')(encoded)
     y_pred = Softmax(name='the_output_ctc')(encoded_pred)
-    output_ctc = Lambda(nh.ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
+    loss_ctc = Lambda(nh.ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
+    output_ctc = y_pred#Lambda(nh.ctc_lambda_decode_func, output_shape=(1,), name='the_output_ctc')([y_pred, input_length])
 
     inputs = [_input, labels, input_length, label_length]
-    model = Model(inputs, [output_att, output_ctc])
-    lamb = 0.8
+    model = Model(inputs, [output_att, loss_ctc, output_ctc])
 
-    def ctc_loss(y_true,y_pred):
-        return y_pred
-        
+    alpha = K.variable(0.2)
+    beta = K.variable(0.8)
+    epoch = 40
+    delta = 0.6/40.0
+
     mets = {'the_output':'categorical_accuracy'}
-    model.compile(glob_opt, loss=[att_loss,ctc_loss], loss_weights=[0.8,0.2], metrics = mets)
-    return model, None
+    model.compile(glob_opt, loss=[weighted_loss_init(att_loss,alpha),weighted_loss_init(ctc_loss,beta),dum_loss], metrics = mets)
+    loss_cb = VLW(alpha,beta,epoch,delta)
+    test_func = None
+    return model, test_func, loss_cb
+

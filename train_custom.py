@@ -176,7 +176,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  memory_usage_limit=batch_memory_usage,
                                  channels=channels,
                                  use_ctc=use_ctc,
-                                 noise="s&p")
+                                 noise=None)
     minibatch_size = img_gen.minibatch_size
 
     print('Building model...')
@@ -201,12 +201,12 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
     nan_cb = keras.callbacks.TerminateOnNaN()
     #tsboard = TensorBoardWrapper(img_gen, img_gen.get_val_steps(),log_dir='./logs',histogram_freq=1,write_grads=True, write_images=True)
     callbacks = [history, viz_cb, nan_cb]
-    # if not model_cb is None:
-    #     callbacks = callbacks + [model_cb]
+    if not model_cb is None:
+        callbacks = callbacks + [model_cb]
 
     #Save model
     modelpath = "./data/output/"+run_name+"/model.h5"
-    #model.save(modelpath,overwrite=True)
+    model.save(modelpath,overwrite=True)
 
     #Start training
     if (val_split > 0.0):

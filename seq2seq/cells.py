@@ -220,6 +220,7 @@ class AltAttentionDecoderCell(ExtendedRNNCell):
                   kernel_regularizer=self.kernel_regularizer, name="DenseT")
         dA = Dense(input_length,
                   kernel_initializer=GaussianInit(),
+                  bias_initializer = BiasInit(),
                   kernel_regularizer=self.kernel_regularizer, name="DenseA")
 
         _x = dX(X)
@@ -229,7 +230,7 @@ class AltAttentionDecoderCell(ExtendedRNNCell):
         en = add([_x,_E,_A])
         en = Activation('tanh')(en)
         energy =dT(en)
-        alpha = Softmax(axis=-2, name='alpha')(energy)
+        alpha = Sharpmax(axis=-2, sharpenning=2.0, name='alpha')(energy)
         alphaD = Identity(name='alphaD')(alpha)
 
         _X = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=(1, 1)), output_shape=(input_dim,))([alphaD, X])
@@ -301,7 +302,7 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
                   kernel_regularizer=self.kernel_regularizer, name="DenseT")
         dA = Dense(input_length,
                   kernel_initializer= GaussianInit(),
-                  bias_initializer = BiaisInit(),
+                  bias_initializer = BiasInit(),
                   kernel_regularizer=self.kernel_regularizer, name="DenseA")
         _x = dX(X)
         _E = dE(c_tm1)
@@ -494,7 +495,7 @@ class  GaussianInit(Initializer):
                 w[i][j] = gaussian(j,i)
         return w
 
-class BiaisInit(Initializer):
+class BiasInit(Initializer):
     """Initializer that generates tensors initialized to 0.
     """
 

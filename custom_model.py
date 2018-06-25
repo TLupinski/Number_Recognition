@@ -49,6 +49,8 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         return Model_DisplayAttention(input_shape, output_shape, img_gen,weight_file, **kwargs)
     if (type_model=='CTCAttention'):
         return Model_CTCAttention(input_shape, output_shape, img_gen, **kwargs)
+    if (type_model=='CTCFrozenAttention'):
+        return Model_CTCFrozenAttention(input_shape, output_shape, img_gen, weight_file, **kwargs)
     if (type_model=='CNNRNNCTC'):
         return Model_CNN_RNN_CTC(input_shape, img_gen)
     if (type_model=='ResCGRUCTC'):
@@ -69,13 +71,12 @@ def Model_Attention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
     test_func = K.function([inputs], [y_pred])
     return model, test_func, None
 
-def Model_CTCAttention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
-    model, callback = ConvJointCTCAttentionSeq2Seq(bidirectional=True, att_loss = loss, glob_opt = opt, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
-    inp = model.get_layer('the_input')
-    inputs = inp.input
-    out = model.get_layer('the_output')
-    y_pred = out.output
-    test_func = K.function([inputs], [y_pred])
+def Model_CTCAttention(input_shape, output_shape, img_gen, **kwargs):
+    model, test_func, callback = ConvJointCTCAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
+    return model, test_func, callback
+
+def Model_CTCFrozenAttention(input_shape, output_shape, img_gen, weight_file, **kwargs):
+    model, test_func, callback = ConvJointCTCFrozenAttentionSeq2Seq("./data/output/FROZEN/FROZEN.h5", bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
     return model, test_func, callback
 
 def Model_DisplayAttention(input_shape, output_shape, img_gen, weightfile, loss, opt, **kwargs):
@@ -437,13 +438,26 @@ def Model_AttentionBiLSTM(input_shape, img_gen):
 def Model_Dummy(input_shape, output_shape):
     input_data = Input(name='the_input', shape=input_shape, dtype='float32')
     print(input_shape)
-    rs = Reshape((4,-1))(input_data)
-    out = Dense(11, activation='softmax', name='the_output')(rs)
-    model = Model(inputs=input_data, outputs=out)
+    rs = Reshape((8,-1))(input_data)
+    rs = Lambda(lambda x:print_tensor(x,message='rs'))(rs)
+    outl1 = Dense(11, activation='softmax', name='the_output')
+    outl1.trainable = False
+    out1 = outl1(rs)
+    outl2 = Dense(11, activation='softmax', name='the_output_ctc')
+    outl2.trainable = False
+    out2 = outl2(rs)
+    model = Model(inputs=input_data, outputs=[out1,out2])
+    model.trainable = False
 
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
-    model.compile(loss='mse', optimizer='adam')
+    def dice_loss(loss_weight):
+        def loss(y_true, y_pred):
+            loss = keras.losses.mean_squared_error(y_true,y_pred)
+            return loss * loss_weight
+        return loss
 
-    test_func = K.function([input_data], [out])
-
-    return model, test_func
+    alpha = K.variable(0.001)
+    beta = K.variable(1.0)
+    model.compile(loss=[dice_loss(alpha), dice_loss(beta)], optimizer='adam')
+    model.summary()
+    return model, None, None

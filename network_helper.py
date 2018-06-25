@@ -32,11 +32,7 @@ def noisy(noise_typ,image):
       return noisy
     elif noise_typ == "s&p":
       s_vs_p = 0.5
-<<<<<<< HEAD
-      amount = 0.15
-=======
       amount = 0.03
->>>>>>> aad134c4bc06a8ff8a316760b49b46e392f6aee1
       out = np.copy(image)
       # Salt mode
       num_salt = np.ceil(amount * image.size * s_vs_p)
@@ -325,6 +321,7 @@ class TextImageGenerator(keras.callbacks.Callback):
                       'label_length': label_length,
                       'source_str': source_str}  # used for visualization only
             outputs = {'the_output': labels ,
+                      'the_output_ctc': labels,#np.zeros((size,128,11)) ,
                       'ctc': np.zeros([size])}  # dummy data for dummy loss function
         else:
             labels = np.array(labels)
@@ -378,14 +375,13 @@ def ctc_lambda_func(args):
 
 def ctc_lambda_decode_func(args):
     """
-    The actual loss calc occurs here despite it not being
-    an internal Keras loss function.
+    CTC output lambda function to use as a Lambda layer in a model
     """
     y_pred, input_length = args
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
-    y_pred = y_pred[:, 2:, :]
-    return K.ctc_decode(y_pred, input_length, greedy=False,beam_width=20)
+    #y_pred = y_pred[:, 2:, :]
+    return K.ctc_decode(y_pred, input_length, greedy=True,beam_width=20)
 
 def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False, n=1):
     """
@@ -394,39 +390,37 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
     For this example, best path is sufficient.
     """
     out = test_func([word_batch])[0]
-    if display:
-        for l in range(1):
-            k = 5
-            for i in range(k):
-                b = word_batch[l*k + i]
-                b = swapaxes(b,0,1)
-                subplot(k,2,2*i+1)
-                imshow(b)
-                subplot(k,2,2*i+2)
-                imshow(out[l*k + i].T,cmap=cm.hot)
-            show()
+    # if display:
+    #     for l in range(1):
+    #         k = 5
+    #         for i in range(k):
+    #             b = word_batch[l*k + i]
+    #             b = swapaxes(b,0,1)
+    #             subplot(k,2,2*i+1)
+    #             imshow(b)
+    #             subplot(k,2,2*i+2)
+    #             imshow(out[l*k + i].T,cmap=cm.hot)
+    #         show()
     ret = []
     for i in range(out.shape[0]):
         ret.append([])
     for j in range(out.shape[0]):
         dx = 1
-        if ctc_decode:
-            dx = 0
         if n == 1:
-<<<<<<< HEAD
-            out_best = list(np.argmax(out[j, :], 1))
-            if ctc_decode:
-=======
             out_best = list(np.argmax(out[j], 1))
             if ctc_decode:
                 out_best = list(np.argmax(out[j,2:], 1))
->>>>>>> aad134c4bc06a8ff8a316760b49b46e392f6aee1
                 out_best = [k for k, g in itertools.groupby(out_best)]
             scores = [1]
             outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)
             ret[j].append(outstr)
         else:
             out_best, scores = decode_n_best(out[j], n, len(alphabet))
+            if ctc_decode:
+                new_out_best = []
+                for i in range(n):
+                    new_out_best = new_out_best + [[k for k, g in itertools.groupby(out_best[i])]]
+                out_best = new_out_best
             for i in range(n):
                 ret[j].append(labels_to_text(out_best[i],alphabet, len(alphabet)-dx))
     return ret, scores
