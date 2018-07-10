@@ -1,7 +1,7 @@
 import keras
 from keras.layers import Layer
-import keras.activations as activations
 import keras.backend as K
+from keras.activations import softmax
 
 def smoothmax(x, axis=-1):
     """Softmax activation function.
@@ -62,7 +62,7 @@ class Softmax(Layer):
         self.axis = axis
 
     def call(self, inputs):
-        return activations.softmax(inputs, axis=self.axis)
+        return softmax(inputs, axis=self.axis)
 
     def get_config(self):
         config = {'axis': self.axis}

@@ -35,20 +35,21 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     if K.image_data_format() == 'channels_first':
         print('NOT IMPLEMENTED !!!')
 
-    use_ctc = False
+    use_ctc = True
     input_shape = (img_w, img_h)
     print('Build text image generator')
     img_gen = TextImageGenerator(train_folder=datafolder_name,
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=1,
+                                 downsample_factor=4,
                                  val_split=val_split,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
                                  max_samples=max_samples,
                                  acceptable_loss = 0,
-                                 memory_usage_limit=5000000)
+                                 memory_usage_limit=5000000,
+                                 use_ctc=use_ctc)
     minibatch_size = img_gen.minibatch_size
     nb_samples = img_gen.train_size
     print('Batch size : ',minibatch_size)
@@ -62,10 +63,11 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     #model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
 
     input_data = model.get_layer('the_input').output
-    e_pred = model.get_layer('encoder').output
-    y_pred = model.get_layer('the_output').output
-    enc_func = K.function([input_data], [e_pred])
-    out_func = K.function([input_data], [y_pred])
+    #e_pred = model.get_layer('encoder').output
+    y_predatt = model.get_layer('the_output').output
+    y_predctc = model.get_layer('the_output_ctc').output
+    #enc_func = K.function([input_data], [e_pred])
+    out_func = K.function([input_data], [y_predatt,y_predctc])
     attention = True
     #print(model.summary())
     step = nb_samples//minibatch_size
@@ -78,41 +80,49 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
     nb_res = 0
     nb_mot = 0
     hidden = 16 * 2
-    n_img_w = img_w//2
+    n_img_w = img_w//4
     n_img_h = img_h//16
-    nb_display = 3
+    nb_display = 2
     for i in range(step):
         wb = word_batch = next(img_gen.next_train())
         word_batch = wb[0]
         out_batch = wb[1]
         num_proc = word_batch['the_input'].shape[0]
-        enc = enc_func([word_batch['the_input'][0:num_proc]])[0]
+        #enc = enc_func([word_batch['the_input'][0:num_proc]])[0]
         out = out_func([word_batch['the_input'][0:num_proc]])[0]
+        out2 = out_func([word_batch['the_input'][0:num_proc]])[1]
         #decoded_res, scores = nt.decode_batch(out_func,word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=use_ctc, n=1)
-        print(np.shape(out))
+        print(np.shape(out), np.shape(out2))
         if attention:
             for i in range(minibatch_size):
                 img = word_batch['the_input'][i].T
                 shape = np.shape(img)
                 img = np.repeat(np.reshape(img,shape + (1,)),3,axis=-1)
-                subplot(max_str_len+1,1,1)
+                subplot(3,1,1)
                 imshow(img)
-                for j in range(max_str_len):
-                    att = out[i][j]
-                    superposed = np.copy(img)
-                    for a in range(img_w-4):
-                        for b in range(img_h):
-                            n = 0
-                            if (att[a//8]>0):
-                                x = 0.5 + superposed[b][a][0]/2 + att[a//8]
-                                if (x > 1.0):
-                                    n = x - 1.0
-                                    x = 1.0
-                                superposed[b][a][0] = x
-                            superposed[b][a][1] = 0.5 + superposed[b][a][1]/2 -n
-                            superposed[b][a][2] = 0.5 + superposed[b][a][2]/2 -n
-                    subplot(max_str_len+1,1,2+j)
-                    imshow(superposed)
+                subplot(3,1,2)
+                att = out[i]
+                imshow(att.T, cmap=cm.hot)
+                subplot(3,1,3)
+                ctc = out2[i]
+                imshow(ctc.T, cmap=cm.hot)
+                # for j in range(max_str_len):
+                #     att = out[i][j][0]
+                #     ctc = out[i][j][1]
+                #     superposed = np.copy(img)
+                #     for a in range(img_w-4):
+                #         for b in range(img_h):
+                #             n = 0
+                #             if (att[a//8]>0):
+                #                 x = 0.5 + superposed[b][a][0]/2 + att[a//8]
+                #                 if (x > 1.0):
+                #                     n = x - 1.0
+                #                     x = 1.0
+                #                 superposed[b][a][0] = x
+                #             superposed[b][a][1] = 0.5 + superposed[b][a][1]/2 -n
+                #             superposed[b][a][2] = 0.5 + superposed[b][a][2]/2 -n
+                #     subplot(max_str_len+1,1,2+j)
+                #    imshow(att.T, cmap=cm.hot)
                 show()
         else:
             #Afficher les différentes couches de convolutions
@@ -132,7 +142,7 @@ def test(run_name, img_w, img_h, start_epoch, minibatch_size, max_str_len, max_s
             #Afficher les séquences comme des images
             else:
                 display_size = 5
-                out = np.reshape(out[:display_size], (display_size,max_str_len,11))
+                out = np.reshape(out[:display_size], (display_size,n_img_w,11))
                 for j in range(display_size):
                     img = word_batch['the_input'][j]
                     img = np.repeat(np.reshape(img,np.shape(img)+(1,)),3,axis=-1)
@@ -162,9 +172,6 @@ if __name__ == '__main__':
     os.environ["TF_CPP_MIN_LOG_LEVEL"]="2"
     OUTPUT_DIR = './data/output/'
     weight_file = "data/output/weight00.h5"
-    #datafolder_name = "../Dataset/MNIST/MNIST_Training_Multi"
-    #datafolder_name = "../Dataset/ORAND-CAR/Binarized_CAR-A/a_train_images/"
-    #datafolder_name = "../Dataset/CVL/CVLS_Training"
     run_name = init_content[0]
     datafolder_name = init_content[1]
     image_width = int(init_content[2])

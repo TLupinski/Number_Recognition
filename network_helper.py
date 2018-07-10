@@ -406,6 +406,8 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
         ret.append([])
     for j in range(out.shape[0]):
         dx = 1
+        if (ctc_decode):
+            dx = 0
         if n == 1:
             out_best = list(np.argmax(out[j], 1))
             if ctc_decode:
@@ -423,6 +425,14 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
                 out_best = new_out_best
             for i in range(n):
                 ret[j].append(labels_to_text(out_best[i],alphabet, len(alphabet)-dx))
+    # if ctc_decode:
+    #     input_length = [32]*out.shape[0]
+    #     out_best, scores = K.ctc_decode(out, input_length, greedy = False, top_paths = n)
+    #     print(out_best)
+    #     print(scores)
+    #     for j in range(out.shape[0]):
+    #         print(out_best[0][j], ret[j])
+
     return ret, scores
 
 def decode_n_best(res, n, a):

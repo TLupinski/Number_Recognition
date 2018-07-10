@@ -138,10 +138,9 @@ def create_sparse(labels):
     return tf.SparseTensor(indices, values, dense_shape=shape)
 
 
-def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, use_ctc, **kwargs):
+def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_size, max_str_len, max_samples, batch_memory_usage, type_model, use_ctc, **kwargs):
     """
     Train a model
-
     #Argument
         - run_name: String, the name of the folder used as save directory for metrics, model and weights.
         - start_epoch: Int, the starting epoch, 0 means start a new learning from scratch.
@@ -151,7 +150,8 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
         - img_h : Int, Height of the input images (All images need to be normalized)
 
     """
-
+    alphabet = "0123456789 "
+    OUTPUT_DIR = "./data/output/"
     if K.image_data_format() == 'channels_first':
         print('NOT IMPLEMENTED !!!')
 
@@ -167,7 +167,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=8,
+                                 downsample_factor=4,
                                  val_split=val_split,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
@@ -193,20 +193,21 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
         model, test_func,model_cb = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
         weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
         model.load_weights(weight_file, by_name=True)
+        
         #est_func = K.function([model.get_layer('the_input').input], [model.get_layer('softmax').output])
 
     #Create and set all callbacks for training
-    history = HistorySaver(start_epoch)
-    viz_cb = VizCallback(run_name, test_func, img_gen.next_val())
-    nan_cb = keras.callbacks.TerminateOnNaN()
+    #history = HistorySaver(start_epoch)
+    #save_cb = VizCallback(run_name, test_func, img_gen.next_val())
+    #nan_cb = keras.callbacks.TerminateOnNaN()
     #tsboard = TensorBoardWrapper(img_gen, img_gen.get_val_steps(),log_dir='./logs',histogram_freq=1,write_grads=True, write_images=True)
-    callbacks = [history, viz_cb, nan_cb]
-    if not model_cb is None:
-        callbacks = callbacks + [model_cb]
+    #callbacks = [history, save_cb, nan_cb]
+    #if not model_cb is None:
+    #    callbacks = callbacks + [model_cb]
 
     #Save model
-    modelpath = "./data/output/"+run_name+"/model.h5"
-    model.save(modelpath,overwrite=True)
+    # modelpath = "./data/output/"+run_name+"/model.h5"
+    # model.save(modelpath,overwrite=True)
 
     #Start training
     if (val_split > 0.0):
@@ -215,7 +216,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
                             epochs=stop_epoch,
                             validation_data=img_gen.next_val(),
                             validation_steps=img_gen.get_val_steps(),
-                            callbacks=callbacks,
+      #                      callbacks=callbacks,
                             initial_epoch=start_epoch,
                             workers=12,
                             use_multiprocessing=True)
@@ -223,7 +224,7 @@ def train(run_name, img_w, img_h, start_epoch, stop_epoch, val_split, minibatch_
         hist = model.fit_generator(generator=img_gen.next_train(),
                             steps_per_epoch=img_gen.get_train_steps(),
                             epochs=stop_epoch,
-                            callbacks=callbacks,
+     #                       callbacks=callbacks,
                             initial_epoch=start_epoch,
                             workers=12,
                             use_multiprocessing=True)
@@ -244,7 +245,7 @@ if __name__ == '__main__':
     OUTPUT_DIR = 'data/output/'
     weight_file = "data/output/weight00.h5"
     run_name = init_content[0]
-    datafolder_name = init_content[1]
+    datafolder = init_content[1]
     image_width = int(init_content[2])
     image_height = int(init_content[3])
     #Maximum length of output needed
@@ -301,6 +302,6 @@ if __name__ == '__main__':
     str_loss = init_content[i+1]
     kwargs["loss"]=keras.losses.get(str_loss)
     kwargs["opt"]=keras.optimizers.get(opt)
-    train(run_name=run_name,start_epoch=start,stop_epoch=stop, type_model=type_model,
+    train(run_name=run_name, datafolder_name = datafolder, start_epoch=start,stop_epoch=stop, type_model=type_model,
             img_w=image_width, img_h=image_height, val_split=val_split, minibatch_size=minibatch_size,
             max_str_len=max_str_len,max_samples=max_samples,batch_memory_usage=batch_memory_usage,use_ctc=use_ctc, **kwargs)

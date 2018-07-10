@@ -46,7 +46,7 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
     if (type_model=='Attention'):
         return Model_Attention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='DisplayAttention'):
-        return Model_DisplayAttention(input_shape, output_shape, img_gen,weight_file, **kwargs)
+        return Model_DisplayAttention(input_shape, output_shape, img_gen, weight_file, **kwargs)
     if (type_model=='CTCAttention'):
         return Model_CTCAttention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='CTCFrozenAttention'):
@@ -61,7 +61,7 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         return Model_Dummy(input_shape, output_shape)
     return None,None
         
-def Model_Attention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
+def Model_Attention(input_shape, output_shape, img_gen, loss='mse', opt='sgd', **kwargs):
     model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
     model.compile(loss=loss, optimizer=opt,metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
@@ -71,8 +71,8 @@ def Model_Attention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
     test_func = K.function([inputs], [y_pred])
     return model, test_func, None
 
-def Model_CTCAttention(input_shape, output_shape, img_gen, **kwargs):
-    model, test_func, callback = ConvJointCTCAttentionSeq2Seq(bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
+def Model_CTCAttention(input_shape, output_shape, img_gen, loss, opt, **kwargs):
+    model, test_func, callback = ConvJointCTCAttentionSeq2Seq(glob_opt = opt, att_loss = loss, bidirectional=True, input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
     return model, test_func, callback
 
 def Model_CTCFrozenAttention(input_shape, output_shape, img_gen, weight_file, **kwargs):
@@ -145,9 +145,10 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     # transforms RNN output to character activations:
     inner = Dense(img_gen.get_output_size(), kernel_initializer='he_normal',
                   name='dense2')(concatenate([gru_2, gru_2b]))
-    y_pred = Activation('softmax', name='softmax')(inner)
+    y_pred = Activation('softmax', name='the_output')(inner)
     labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
     input_length = Input(name='input_length', shape=[1], dtype='int64')
+    print(input_length)
     label_length = Input(name='label_length', shape=[1], dtype='int64')
     # Keras doesn't currently support loss funcs with extra parameters
     # so CTC loss is implemented in a lambda layer
@@ -157,13 +158,11 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     #sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
 
     model = Model(inputs=[input_data, labels, input_length, label_length], outputs=loss_out)
+    test_func = K.function([input_data],[y_pred])
 
     print('Compiling model')
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
-
-    test_func = K.function([input_data], [y_pred])
-
     return model, test_func, None
 
 def Model_ResCGRU(input_shape, img_gen):
@@ -178,7 +177,7 @@ def Model_ResCGRU(input_shape, img_gen):
     pool_size = 2
     rnn_size = 100
     post_rnn_fcl_size = 100
-    act = keras.layers.LeakyReLU(alpha=0.3)
+    act = 'relu'
     img_w = input_shape[0]
     img_h = input_shape[1]
 
@@ -257,7 +256,7 @@ def Model_ResCGRU(input_shape, img_gen):
 
     # transforms RNN output to character activations:
     inner = add([inner_class,inner_classb_reversed])
-    y_pred = Activation('softmax', name='softmax')(inner)
+    y_pred = Activation('softmax', name='the_output')(inner)
 
     labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
     input_length = Input(name='input_length', shape=[1], dtype='int64')
@@ -272,7 +271,6 @@ def Model_ResCGRU(input_shape, img_gen):
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     opt = keras.optimizers.Adadelta()
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=opt, metrics=['accuracy'])
-
     # captures output of softmax so we can decode the output during visualization
     test_func = K.function([input_data], [y_pred])
     return model, test_func, None
@@ -422,10 +420,10 @@ def Model_AttentionBiLSTM(input_shape, img_gen):
     gru_merged = add([gru_1,gru_1b])
     gru_2 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru2', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
     gru_2b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru2_b', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
-    gru_merged2 = add([gru_2,gru_2b])
- #   attention = Attention(RNN(rnn_size, return_sequences=True))(gru_merged2)
+    attention = add([gru_2,gru_2b])
+    # attention = Attention(RNN(rnn_size, return_sequences=True))(gru_merged2)
 
-  #  model = Model(inputs=[_input], outputs=[attention])
+    model = Model(inputs=[inpu_datat], outputs=[attention])
 
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     adam = keras.optimizers.Adam(lr=learning_rate, beta_1=momentum1, beta_2=momentum2)
@@ -436,28 +434,13 @@ def Model_AttentionBiLSTM(input_shape, img_gen):
     return None, None
 
 def Model_Dummy(input_shape, output_shape):
-    input_data = Input(name='the_input', shape=input_shape, dtype='float32')
-    print(input_shape)
-    rs = Reshape((8,-1))(input_data)
-    rs = Lambda(lambda x:print_tensor(x,message='rs'))(rs)
-    outl1 = Dense(11, activation='softmax', name='the_output')
-    outl1.trainable = False
-    out1 = outl1(rs)
-    outl2 = Dense(11, activation='softmax', name='the_output_ctc')
-    outl2.trainable = False
-    out2 = outl2(rs)
-    model = Model(inputs=input_data, outputs=[out1,out2])
-    model.trainable = False
+    # model = yolo(input_shape, output_shape)
+    # model.summary()
+    # for i in range(len(model.layers)):
+    #     layer = model.get_layer(index=i)
+    #     layer.trainable = True
+    # model.compile(loss=['mse','mse'], loss_weights=[1.0,1.0], optimizer='adam')
+    # model.summary()
 
-    # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
-    def dice_loss(loss_weight):
-        def loss(y_true, y_pred):
-            loss = keras.losses.mean_squared_error(y_true,y_pred)
-            return loss * loss_weight
-        return loss
-
-    alpha = K.variable(0.001)
-    beta = K.variable(1.0)
-    model.compile(loss=[dice_loss(alpha), dice_loss(beta)], optimizer='adam')
-    model.summary()
-    return model, None, None
+    # 
+    return None, None, None

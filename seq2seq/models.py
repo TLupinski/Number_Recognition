@@ -1,12 +1,14 @@
 from __future__ import absolute_import
 from recurrentshop import LSTMCell, RecurrentSequential, Identity
-from .cells import Softmax, LSTMDecoderCell, AttentionDecoderCell, AltAttentionDecoderCell, AltAttentionDecoderCellD
+from .cells import *
 import keras
 from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, TimeDistributed, Bidirectional, Input, Reshape, Lambda, concatenate
 from keras.layers.convolutional import Conv2D, MaxPooling2D
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import Callback
+from keras.layers.recurrent import GRU, LSTM
+from keras.layers.merge import add, concatenate
 import keras.backend as K
 import network_helper as nh
 import numpy as np
@@ -756,12 +758,13 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     else:
         if len(Encoder)<depth[0]:
             Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
-
     encoder = RecurrentSequential(unroll=True, stateful=stateful, 
                                 #   return_states=True, return_all_states=True,
                                   return_sequences=True, name =global_name + 'encoder')
-    encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
-
+    bi = (shape[0],)+(conv_to_rnn_dims[1],)
+    print(bi)
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=bi))
+    
     for k in range(1, depth[0]):
         encoder.add(Dropout(dropout))
         encoder.add(LSTMCell(Encoder[k]))
@@ -808,8 +811,8 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
 
 class VLW(Callback):
     '''
-        Callback used to varying loss weight during training
-        At start, loss weight is [0.2,0.8] and it come to [0.8,0.2]
+        Callback used for dynamic loss weight variation during training
+        At start, loss weight is [a,b] and it come to [a+c*d,b-c*d]
         for [AttentionLoss,CTC loss] resp.
     '''
 
@@ -828,12 +831,17 @@ class VLW(Callback):
 def ConvJointCTCFrozenAttentionSeq2Seq(filename, opt, loss, **kwargs):
     model, _ , _ = ConvJointCTCAttentionSeq2Seq(**kwargs)
     model.load_weights(filename,by_name=True)
-    for i in range(29):
+    for i in range(len(model.layers)):
+        print(i)
         layer = model.get_layer(index=i)
-        if not "ctc" in layer.name and not "dense2" in layer.name:
-            layer.trainable = False
+        layer.trainable = False
+        if "ctc" in layer.name:
+           layer.trainable = True
+        if "model" in layer.name:
+            layer.load_weights(filename,by_name=True)
     mets = {'the_output':'categorical_accuracy'}
-    model.compile(opt, loss=[loss,ctc_loss, dum_loss], loss_weights=[0.0,1.0,0.0], metrics = mets)
+    model.compile(opt, loss=[loss, ctc_loss, dum_loss], loss_weights=[0.0,1.0,0.0], metrics = mets)
+    model.summary()
     return model, None, None
         
 def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
@@ -852,7 +860,7 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
     For weighting the loss function, a callback is used to transfer from [0.2,0.8] to [0.8,0.2]
 
     '''
-    K.set_learning_phase(1)
+    K.set_learning_phase(0)
     if isinstance(depth, int):
         depth = (depth, depth)
     if batch_input_shape:
@@ -870,7 +878,6 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
     if hidden_dim is None:
         hidden_dim = output_dim
     conv_filters = 16
-    pool_size = 2
     input_shape = (shape[1], shape[2], 1)
     img_w = input_shape[0]
     img_h = input_shape[1]
@@ -917,6 +924,7 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
     conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
     cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
     postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
+    enc_input = Input(shape=conv_to_rnn_dims, name='encoder_input')
     if Encoder==None:
         Encoder=[hidden_dim]*depth[0]
     else:
@@ -939,15 +947,18 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
         # patch
         encoder.layer = encoder.forward_layer
 
-    #encoded = encoder(cnn_out)
-    if (state_transfer):
-        encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
-        encoder_states._keras_shape = encoded_outputs._keras_shape
-        encoded = concatenate([encoded_outputs,encoder_states], axis=1)
-    else :
-        encoded = encoder(cnn_out)
+    # if (state_transfer):
+    #     encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
+    #     encoder_states._keras_shape = encoded_outputs._keras_shape
+    #     encoded_out = concatenate([encoded_outputs,encoder_states], axis=1)
+    # else :
+    encoded_out = encoder(enc_input)
+    encoder_model = Model(inputs=[enc_input], outputs=[encoded_out])
+    encoded = encoder_model(cnn_out)
 
+    #encoded = encoder(cnn_out)
     #Attention Decoder Part
+    dec_input = Input(shape=(conv_to_rnn_dims[0], Encoder[-1]))
     if Decoder==None:
         Decoder=[hidden_dim]*depth[1]
     else:
@@ -958,15 +969,17 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
                                   unroll=unroll, stateful=stateful, name='decoder')
     decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
     if depth[1] == 1:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
     else:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
         for k in range(depth[1] - 2):
             decoder.add(Dropout(dropout))
             decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
         decoder.add(Dropout(dropout))
         decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
-    decoded = decoder(encoded)
+    decoded_out = decoder(dec_input)
+    decoder_model = Model(inputs=[dec_input], outputs=[decoded_out])
+    decoded = decoder_model(encoded)
     output_att = Softmax(name = 'the_output')(decoded)
 
     #CTC Part
@@ -976,7 +989,7 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
     label_length = Input(name='label_length', shape=[1], dtype='int64')
 
     encoded_pred = Dense(output_dim, kernel_initializer='he_normal',
-                  name='dense2')(encoded)
+                  name='dense_ctc')(encoded)
     y_pred = Softmax(name='the_output_ctc')(encoded_pred)
     loss_ctc = Lambda(nh.ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
     output_ctc = y_pred#Lambda(nh.ctc_lambda_decode_func, output_shape=(1,), name='the_output_ctc')([y_pred, input_length])
@@ -986,11 +999,15 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
 
     alpha = K.variable(0.2)
     beta = K.variable(0.8)
-    epoch = 40
-    delta = 0.6/40.0
-
+    epoch = 15
+    delta = 0.6/epoch
+    jayer = model.get_layer(name='model_19')
+    jayer.name = "ordencoder"
+    jayer = model.get_layer(name='model_23')
+    jayer.name = "decoder"
     mets = {'the_output':'categorical_accuracy'}
-    model.compile(glob_opt, loss=[weighted_loss_init(att_loss,alpha),weighted_loss_init(ctc_loss,beta),dum_loss], metrics = mets)
+    model.compile(glob_opt, loss=[att_loss,ctc_loss,dum_loss], metrics = mets)#weighted_loss_init(att_loss,alpha),weighted_loss_init(ctc_loss,beta)
+    model.summary()
     loss_cb = VLW(alpha,beta,epoch,delta)
     test_func = None
     return model, test_func, loss_cb

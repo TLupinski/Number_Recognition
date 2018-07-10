@@ -27,10 +27,10 @@ def gaussian(x, c):
 if True:
     history = {}
     epoch = []
-    f = open("./data/output/AttentionCTC-ORA-CNN3_64-RNN_128/metrics.pk",'rb')
+    f = open("./data/output/AttentionConv-ORA-CNN5_64-RNN_256/metrics.pk",'rb')
     history = pickle.loads(f.read())
     init_epoch = len(history['loss']) - len(history['val_loss'])
-    p = history['val_the_output_categorical_accuracy']
+    p = history['val_categorical_accuracy']
     max = 0
     amax = 0
     for i in range (len(p)):
