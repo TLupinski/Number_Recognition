@@ -19,6 +19,7 @@ import keras.losses
 from keras.utils.data_utils import get_file
 from keras.preprocessing import image
 import keras.callbacks
+from keras.callbacks import LearningRateScheduler
 import keras.losses
 import keras.optimizers
 from keras.callbacks import History
@@ -118,17 +119,16 @@ class TensorBoardWrapper(keras.callbacks.TensorBoard):
 
     def on_epoch_end(self, epoch, logs):
         # Fill in the `validation_data` property. Obviously this is specific to how your generator works.
-        # Below is an example that yields images and classification tags.
         # After it's filled in, the regular on_epoch_end method has access to the validation_data.
         imgs, tags = None, None
         for s in range(1):
-            batch = self.batch_gen.get_batch(0, 200, train=False)
+            batch = self.batch_gen.get_batch(0, self.nb_steps, train=False)
             imgs = batch[0]['the_input']
             tags = batch[0]['the_labels']
             imgl = batch[0]['input_length']
             tagl = batch[0]['label_length']
             ctct = [batch[1]['ctc']]
-        self.validation_data = [imgs, tags,imgl,tagl,ctct,np.zeros(imgs.shape[0])]
+        self.validation_data = [imgs, tags, imgl, tagl, ctct, np.ones(imgs.shape[0]), 0.0]
         return super(TensorBoardWrapper, self).on_epoch_end(epoch, logs)
 
 def create_sparse(labels):
@@ -167,7 +167,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=4,
+                                 downsample_factor=8,
                                  val_split=val_split,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
@@ -197,13 +197,24 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
         #est_func = K.function([model.get_layer('the_input').input], [model.get_layer('softmax').output])
 
     #Create and set all callbacks for training
-    #history = HistorySaver(start_epoch)
-    #save_cb = VizCallback(run_name, test_func, img_gen.next_val())
-    #nan_cb = keras.callbacks.TerminateOnNaN()
-    #tsboard = TensorBoardWrapper(img_gen, img_gen.get_val_steps(),log_dir='./logs',histogram_freq=1,write_grads=True, write_images=True)
-    #callbacks = [history, save_cb, nan_cb]
-    #if not model_cb is None:
-    #    callbacks = callbacks + [model_cb]
+    def exp_decay(epoch):
+       initial_lrate = 0.01
+       k = 0.007
+       lrate = initial_lrate * np.exp(-k*epoch)
+       print("Learning rate for epoch {} is {}".format(epoch, lrate))
+       return lrate
+
+    lrate = LearningRateScheduler(exp_decay)
+    history = HistorySaver(start_epoch)
+    save_cb = VizCallback(run_name, test_func, img_gen.next_val())
+    nan_cb = keras.callbacks.TerminateOnNaN()
+    callbacks = [history, save_cb, nan_cb]
+    if False:
+        tsboard = TensorBoardWrapper(img_gen, 91 ,log_dir='./logs',histogram_freq=1, batch_size=500, write_graph=False, write_grads=True, write_images=True)
+        callbacks = callbacks + [tsboard]
+   
+    if not model_cb is None:
+        callbacks = callbacks + [model_cb]
 
     #Save model
     # modelpath = "./data/output/"+run_name+"/model.h5"
@@ -216,7 +227,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
                             epochs=stop_epoch,
                             validation_data=img_gen.next_val(),
                             validation_steps=img_gen.get_val_steps(),
-      #                      callbacks=callbacks,
+                            callbacks=callbacks,
                             initial_epoch=start_epoch,
                             workers=12,
                             use_multiprocessing=True)
@@ -224,7 +235,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
         hist = model.fit_generator(generator=img_gen.next_train(),
                             steps_per_epoch=img_gen.get_train_steps(),
                             epochs=stop_epoch,
-     #                       callbacks=callbacks,
+                            callbacks=callbacks,
                             initial_epoch=start_epoch,
                             workers=12,
                             use_multiprocessing=True)
@@ -296,6 +307,9 @@ if __name__ == '__main__':
                 optarg[q-1] = float(str_optimizer[q])
             opt = keras.optimizers.Adadelta(optarg[0],optarg[1],optarg[2],optarg[3])
         if (str_optimizer[0]=='SGD'):
+            optarg = [0.01,0.0,0.0]
+            for q in range(1,len(str_optimizer)):
+                optarg[q-1] = float(str_optimizer[q])
             opt = keras.optimizers.Adam(float(optarg[0]),float(optarg[1]),float(optarg[2]))
     else:
         opt = str_optimizer[0]

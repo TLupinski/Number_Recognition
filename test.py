@@ -27,25 +27,24 @@ def gaussian(x, c):
 if True:
     history = {}
     epoch = []
-    f = open("./data/output/AttentionConv-ORA-CNN5_64-RNN_256/metrics.pk",'rb')
+    f = open("./data/output/KK2/metrics.pk",'rb')
     history = pickle.loads(f.read())
-    init_epoch = len(history['loss']) - len(history['val_loss'])
-    p = history['val_categorical_accuracy']
-    max = 0
-    amax = 0
-    for i in range (len(p)):
-        if p[i] > max:
-            max = p[i]
-            amax = i
-    print(amax, max)
+ #   init_epoch = len(history['loss']) - len(history['val_loss'])
+    for i in range(len(history['loss'])):
+	epoch = epoch+[i]
+    #p = history['val_categorical_accuracy']
     f.close()
-    df=pd.DataFrame({'abs': epoch, 'train_loss': history['loss'][len(history['val_loss']):]})#, 'val_loss': history['val_loss']})#, 'train_acc': history['categorical_accuracy'], 'val_acc': history['val_categorical_accuracy']})
+    print(len(epoch))
+    print(len(history['loss']))
+#    print(len(history['val_loss']))
+    df=pd.DataFrame({'abs': epoch, 'train_loss': history['loss']}) #, 'val_loss': history['val_loss']}) #, 'train_acc': history['categorical_accuracy'], 'val_acc': history['val_categorical_accuracy']})
     # multiple line plot
     #plt.subplot(2,1,1)
-    #plt.plot( 'abs', 'val_loss', data=df, color='red', linewidth=2)
+#    plt.plot( 'abs', 'val_loss', data=df, color='red', linewidth=2)
     plt.plot( 'abs', 'train_loss', data=df, color='blue', linewidth=2)
     plt.xlabel('Epoch')
     plt.ylabel('Loss Function Value')
+    plt.ylim([0,60])
     plt.legend(loc=0)
     #plt.subplot(2,1,2)
     #plt.plot( 'abs', 'val_acc', data=df, color='red', linewidth=4)

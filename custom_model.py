@@ -8,8 +8,9 @@ from keras.layers import Reshape, Lambda
 from keras.layers.merge import add, concatenate
 from keras.models import Model
 from keras.layers.recurrent import GRU, LSTM
-from keras.optimizers import SGD
+from keras.optimizers import SGD, RMSprop
 from keras.utils.data_utils import get_file
+from keras.utils import plot_model
 from keras.preprocessing import image
 import network_helper as nt
 from network_helper import TextImageGenerator, ctc_lambda_func
@@ -53,8 +54,12 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         return Model_CTCFrozenAttention(input_shape, output_shape, img_gen, weight_file, **kwargs)
     if (type_model=='CNNRNNCTC'):
         return Model_CNN_RNN_CTC(input_shape, img_gen)
+    if (type_model=='ResCNNRNNCTC'):
+        return Model_ResCNN_RNN_CTC(input_shape, img_gen)
     if (type_model=='ResCGRUCTC'):
         return Model_ResCGRU(input_shape, img_gen)
+    if (type_model=='ResCClassic'):
+        return Model_ResCClasic(input_shape, img_gen)
     if (type_model=='VHLSTM'):
         return Model_VHLSTM(input_shape, img_gen)
     if (type_model=='DUMMY'):
@@ -100,8 +105,8 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     conv_filters = 16
     kernel_size = (3, 3)
     pool_size = 2
-    time_dense_size = 50
-    rnn_size = 512
+    time_dense_size = 64
+    rnn_size = 64
     post_rnn_fcl_size = 100
 
     act = 'relu'
@@ -144,7 +149,7 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
 
     # transforms RNN output to character activations:
     inner = Dense(img_gen.get_output_size(), kernel_initializer='he_normal',
-                  name='dense2')(concatenate([gru_2, gru_2b]))
+                  name='dense2', use_bias=False)(concatenate([gru_2, gru_2b]))
     y_pred = Activation('softmax', name='the_output')(inner)
     labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
     input_length = Input(name='input_length', shape=[1], dtype='int64')
@@ -164,6 +169,82 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
     return model, test_func, None
+
+def Model_ResCNN_RNN_CTC(input_shape, img_gen):
+    # Input Parameters
+    learning_rate=0.0001
+    momentum1=0.9
+    momentum2=0.999
+    lambdad = 0.0001
+
+    #Network Parameters
+    conv_filters = 64
+    kernel_size = (5, 5)
+    pool_size = 3
+    time_dense_size = 256
+    rnn_size = 128
+    post_rnn_fcl_size = 100
+    rd = 2
+    act = 'relu'
+
+    img_w = input_shape[0]
+    img_h = input_shape[1]
+
+    input_data = Input(name='the_input', shape=input_shape, dtype='float32')
+    if (len(input_shape)<3):
+        rs_shape = input_shape + (1,)
+        input_data_rs = Reshape(target_shape=rs_shape)(input_data)
+        inner = Conv2D(conv_filters, kernel_size, padding='same',
+                    activation=act, kernel_initializer='he_normal',
+                    name='conv1')(input_data_rs)
+    else:
+        inner = Conv2D(conv_filters, kernel_size, padding='same',
+                    activation=act, kernel_initializer='he_normal', name='conv1')(input_data)
+    
+    mp_0 = MaxPooling2D(pool_size=(2,2),name="max1")(inner)
+    res_1 = res_connection(mp_0, rd, 64, 3, act)
+    mp_1 = MaxPooling2D(pool_size=(2,2),name="max1")(res_1)
+    res_2 = res_connection(mp_1, rd, 128, 3, act)
+    mp_2 = MaxPooling2D(pool_size=(2,2),name="max2")(res_2)
+
+    conv_to_rnn_dims = ((img_w // (8)), ((img_h // (8))) * 128)
+    rnn_input = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(mp_2)
+
+    # cuts down input size going into RNN:
+    inner = Dense(time_dense_size, activation=act, name='dense1')(rnn_input)
+
+    rec_dropout = 0.2
+    dropout = 0.25
+    # Two layers of bidirectional GRUs
+    # GRU seems to work as well, if not better than LSTM:
+    gru_1 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_1b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru1_b', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_merged = add([gru_1,gru_1b])
+    gru_2 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru2', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
+    gru_2b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru2_b', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
+
+    # transforms RNN output to character activations:
+    inner = Dense(img_gen.get_output_size(), kernel_initializer='he_normal',
+                  name='dense2', use_bias=False)(concatenate([gru_2, gru_2b]))
+    y_pred = Activation('softmax', name='the_output')(inner)
+    labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
+    input_length = Input(name='input_length', shape=[1], dtype='int64')
+    label_length = Input(name='label_length', shape=[1], dtype='int64')
+    # Keras doesn't currently support loss funcs with extra parameters
+    # so CTC loss is implemented in a lambda layer
+    loss_out = Lambda(ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
+
+    # clipnorm seems to speeds up convergence
+    #sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+
+    model = Model(inputs=[input_data, labels, input_length, label_length], outputs=loss_out)
+    test_func = K.function([input_data],[y_pred])
+
+    print('Compiling model')
+    # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
+    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
+    return model, test_func, None
+
 
 def Model_ResCGRU(input_shape, img_gen):
     # Input Parameters
@@ -273,6 +354,97 @@ def Model_ResCGRU(input_shape, img_gen):
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=opt, metrics=['accuracy'])
     # captures output of softmax so we can decode the output during visualization
     test_func = K.function([input_data], [y_pred])
+    return model, test_func, None
+
+def res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
+    from keras.layers import Conv2D, Activation, add
+    x = Conv2D(n_filters, (k_size,k_size), padding="same")(i)
+    orig_x = x
+    x = Activation(activation)(x)
+    for aRes in range(0, residual_depth):
+        if aRes < residual_depth-1:
+            x = Conv2D(n_filters, (k_size,k_size), padding="same")(x)
+            x = BatchNormalization()(x)
+            x = Activation(activation)(x)
+        else:
+            x = Conv2D(n_filters, (k_size,k_size), padding="same")(x)
+            x = BatchNormalization()(x)
+    x = add([orig_x, x])
+    x = Activation(activation)(x)
+    return x
+
+def Model_ResCClasic(input_shape, img_gen):
+    # Input Parameters
+    learning_rate=0.0001
+    momentum1=0.9
+    lambdad = 0.0001
+
+    K.set_learning_phase(1)
+    # Network parameters
+    kernel_size = (3, 3)
+    time_dense_size =100
+    pool_size = 2
+    rnn_size = 100
+    post_rnn_fcl_size = 100
+    act = 'relu'
+    img_w = input_shape[0]
+    img_h = input_shape[1]
+
+    input_data = Input(name='the_input', shape=input_shape, dtype='float32')
+    input_data_rs = Reshape(target_shape=input_shape+(1,))(input_data)
+    rd = 2
+    
+    conv_1 = Conv2D(64, (5,5), padding='same', activation=act, kernel_initializer='he_normal', name='conv1')(input_data_rs)
+    print(conv_1)
+    mp_0 = MaxPooling2D(pool_size=(3,3),strides=(1,1), padding='same')(conv_1)
+    print(mp_0)
+    res_1 = res_connection(mp_0, rd, 64, 3, act)
+    mp_1 = MaxPooling2D(pool_size=(2,2),name="max1")(res_1)
+    res_2 = res_connection(mp_1, rd, 128, 3, act)
+    mp_2 = MaxPooling2D(pool_size=(2,2),name="max2")(res_2)
+    res_3 = res_connection(mp_2, rd, 256, 3, act)
+    mp_3 = MaxPooling2D(pool_size=(2,2),name="max3")(res_3)
+    res_4 = res_connection(mp_3, rd, 512, 3, act)
+
+    conv_to_rnn_dims = ((img_w // (8)), ((img_h // (8))) * 512)
+    print(res_4)
+    print(conv_to_rnn_dims)
+    rnn_input = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(res_4)
+
+    # cuts down input size going into RNN:
+    inner = Dense(time_dense_size, activation=act, name='dense1')(rnn_input)
+
+    rec_dropout = 0.2
+    dropout = 0.25
+    # Two layers of bidirectional GRUs
+    # GRU seems to work as well, if not better than LSTM:
+    gru_1 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_1b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru1_b', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_merged = add([gru_1,gru_1b])
+    gru_2 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru2', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
+    gru_2b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru2_b', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
+
+    # transforms RNN output to character activations:
+    rnnout = Dense(img_gen.get_output_size(), kernel_initializer='he_normal',
+                  name='dense2', use_bias=False)(concatenate([gru_2, gru_2b]))
+    y_pred = Activation('softmax', name='the_output')(rnnout)
+
+    labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
+    input_length = Input(name='input_length', shape=[1], dtype='int64')
+    label_length = Input(name='label_length', shape=[1], dtype='int64')
+    # Keras doesn't currently support loss funcs with extra parameters
+    # so CTC loss is implemented in a lambda layer
+    loss_out = Lambda(nt.ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
+    # clipnorm seems to speeds up convergence
+    #sgd = SGD(lr=0.02, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
+
+    model = Model(inputs=[input_data, labels, input_length, label_length], outputs=loss_out)
+    # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
+    opt = keras.optimizers.Adadelta()
+    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=opt, metrics=['accuracy'])
+    # captures output of softmax so we can decode the output during visualization
+    test_func = K.function([input_data], [y_pred])
+    model.summary()
     return model, test_func, None
 
 def Model_VHLSTM(input_shape, img_gen):
@@ -423,15 +595,23 @@ def Model_AttentionBiLSTM(input_shape, img_gen):
     attention = add([gru_2,gru_2b])
     # attention = Attention(RNN(rnn_size, return_sequences=True))(gru_merged2)
 
-    model = Model(inputs=[inpu_datat], outputs=[attention])
+    model = Model(inputs=[input_data], outputs=[attention])
 
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     adam = keras.optimizers.Adam(lr=learning_rate, beta_1=momentum1, beta_2=momentum2)
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=adam, metrics=['accuracy'])
-
+    model.summary()
     # captures output of softmax so we can decode the output during visualization
     #test_func = K.function(inputs, [y_pred])
     return None, None
+
+#Dummy function to pass the ctc loss computed before as the true loss
+def ctc_loss(y_true, y_pred):
+    return y_pred
+
+#Dummy function to not count ctc decoded output into the loss calculation
+def dum_loss(y_true,y_pred):
+    return K.variable(0.0)
 
 def Model_Dummy(input_shape, output_shape):
     # model = yolo(input_shape, output_shape)
@@ -441,6 +621,56 @@ def Model_Dummy(input_shape, output_shape):
     #     layer.trainable = True
     # model.compile(loss=['mse','mse'], loss_weights=[1.0,1.0], optimizer='adam')
     # model.summary()
+    K.set_learning_phase(0)
+    conv_filters=16
+    kernel_size=3
+    pool_size=(2,2)
+    rnn_size=64
+    act = 'relu'
+    input_data = Input(name='the_input', shape=input_shape, dtype='float32')
+    rs_shape = input_shape + (1,)
+    input_data_rs = Reshape(target_shape=rs_shape)(input_data)
+    inner = Conv2D(conv_filters, kernel_size, padding='same',
+                    activation=act, kernel_initializer='he_normal',
+                    name='conv1')(input_data_rs)
+    inner = MaxPooling2D(pool_size=pool_size, name='max1')(inner)
+    inner = Conv2D(conv_filters, kernel_size, padding='same',
+                   activation=act, kernel_initializer='he_normal',
+                   name='conv2')(inner)
+    inner = MaxPooling2D(pool_size=pool_size, name='max2')(inner)
 
-    # 
-    return None, None, None
+    conv_to_rnn_dims = (256 // (pool_size[0] ** 2), (32 // (pool_size[1] ** 2)) * conv_filters)
+    print(conv_to_rnn_dims)
+    inner = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(inner)
+
+
+    rec_dropout = 0.2
+    dropout = 0.25
+    # Two layers of bidirectional GRUs
+    # GRU seems to work as well, if not better than LSTM:
+    gru_1 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_1b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru1_b', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_merged = add([gru_1,gru_1b])
+    y_pred = Dense(11, activation='softmax', name='the_output')(gru_merged)
+
+    labels = Input(name='the_labels', shape=[9], dtype='float32')
+    input_length = Input(name='input_length', shape=[1], dtype='int64')
+    decode_length = Input(name='input_length_decode', batch_shape=[None], dtype='int64')
+    label_length = Input(name='label_length', shape=[1], dtype='int64')
+    # Keras doesn't currently support loss funcs with extra parameters
+    # so CTC loss is implemented in a lambda layer
+    loss_out = Lambda(nt.ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
+
+    model = Model(inputs=[input_data,labels,input_length,label_length,decode_length], outputs=loss_out)
+    # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
+    opt = RMSprop(0.0001)
+    model.compile(loss=ctc_loss, optimizer=opt)
+    
+    top_path=5
+    top_k_decoded = K.ctc_decode(y_pred, decode_length, greedy=False,beam_width=20,top_paths=top_path)
+    outout = [y_pred]
+    for i in range (top_path):
+        outout = outout+[top_k_decoded[0][i]]
+    decoder = K.function([input_data, decode_length], outout)
+
+    return model, decoder, None

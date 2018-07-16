@@ -306,23 +306,25 @@ class TextImageGenerator(keras.callbacks.Callback):
                 X_data[i] = self.get_val_image(index+i)
                 text = self.get_val_text(index+i)
             if self.use_ctc:
-                input_length[i] = self.img_w // self.downsample_factor-2
+                input_length[i] = self.img_w // self.downsample_factor
                 label_length[i] = len(text)
                 source_str.append(text)
-                labels_ctc[i, 0:len(text)] = text_to_labels(text, self.alphabet)
+                labels_ctc[i, 0:len(text)] = text_to_labels(text, self.alphabet, -1)
                 labels[i] = text_to_labels(text, self.alphabet, self.absolute_max_string_len)
             else:
                 labels[i] = text_to_labels(text, self.alphabet, self.absolute_max_string_len)
         X_data = np.array(X_data)
+        decode_length = np.reshape(input_length,[size])
         if self.use_ctc:
             inputs = {'the_input': X_data,
                       'the_labels': labels_ctc,
                       'input_length': input_length,
+                      'input_length_decode': decode_length,
                       'label_length': label_length,
                       'source_str': source_str}  # used for visualization only
             outputs = {'the_output': labels ,
                       'the_output_ctc': labels,#np.zeros((size,128,11)) ,
-                      'ctc': np.zeros([size])}  # dummy data for dummy loss function
+                      'ctc': np.zeros([size,1])}  # dummy data for dummy loss function
         else:
             labels = np.array(labels)
             inputs = {'the_input': X_data}
@@ -370,7 +372,7 @@ def ctc_lambda_func(args):
     y_pred, labels, input_length, label_length = args
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
-    y_pred = y_pred[:, 2:, :]
+    #y_pred = y_pred[:, 2:, :]
     return K.ctc_batch_cost(labels, y_pred, input_length, label_length)
 
 def ctc_lambda_decode_func(args):
@@ -381,7 +383,7 @@ def ctc_lambda_decode_func(args):
     # the 2 is critical here since the first couple outputs of the RNN
     # tend to be garbage:
     #y_pred = y_pred[:, 2:, :]
-    return K.ctc_decode(y_pred, input_length, greedy=True,beam_width=20)
+    return K.ctc_decode(y_pred, input_length, greedy=False,beam_width=20)
 
 def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False, n=1):
     """
@@ -411,7 +413,7 @@ def decode_batch(test_func, word_batch,alphabet, display=False, ctc_decode=False
         if n == 1:
             out_best = list(np.argmax(out[j], 1))
             if ctc_decode:
-                out_best = list(np.argmax(out[j,2:], 1))
+                out_best = list(np.argmax(out[j], 1))
                 out_best = [k for k, g in itertools.groupby(out_best)]
             scores = [1]
             outstr = labels_to_text(out_best,alphabet, len(alphabet)-dx)
