@@ -2,9 +2,12 @@ import os
 import sys
 import itertools
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 import pandas as pd
 from scipy import ndimage
 import pylab
+from pylab import *
+import matplotlib
 import matplotlib.pyplot as plt
 import string
 import glob
@@ -14,6 +17,8 @@ from tqdm import tqdm
 import time
 import pickle
 import math
+import sklearn
+from skimage.util import view_as_windows
 
 def gaussian(x, c):
     xd = float(x)
@@ -24,7 +29,7 @@ def gaussian(x, c):
     c2 = cd+3.0
     return (-(xd-c2)*(xd-c2)/(2.0*s2*s2))# - math.exp(-(x-c1)*(x-c1)/(2*s1*s1)))
 
-if True:
+if False:
     history = {}
     epoch = []
     f = open("./data/output/KK2/metrics.pk",'rb')
@@ -55,6 +60,17 @@ if True:
     #plt.legend(loc=0)
     plt.show("Figure 3")
 else :
-    for i in range(-10,10):
-        print(gaussian(i,0))
-    #cm.Model_Attention((28,28),(1,11), None)
+    im_path = "./DATASET/ORAND/Normalized_CAR-A/a_train_images/a_car_000154.png"#./DATASET/MNISTMulti1/MNISTM_Training/MNISTMult_13465.png"
+    img = cv2.imread(im_path, 0)
+    img_patched = view_as_windows(img, (32,20), step = 10)
+    img_patched = img_patched[0]
+    nbp = np.shape(img_patched)[0]
+    plt.subplot2grid((2, nbp), (0, 0), colspan=nbp)
+    plt.imshow(img, cmap=cm.gray)
+    for i in range(nbp):
+        plt.subplot2grid((2,nbp), (1, i))
+        plt.imshow(img_patched[i], cmap=cm.gray)
+    plt.show()
+
+
+

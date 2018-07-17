@@ -27,12 +27,14 @@ def ctc_loss(y_true, y_pred):
 def dum_loss(y_true,y_pred):
     return K.variable(0.0)
 
-def CNN_init(CNN, inputrs, global_name):
+def cnn_init(CNN, inputrs, global_name=""):
     '''
     This function allows to create an CNN defined in an init_file.
     CNN is composed of two array:
         -First contains either -1 for MaxPooling2D layer or a positive integer X for a Conv2DLayer with X filters
         -Second array contains the kernel size k1,k2 for each layer
+    inputrs must be of shape(Sample,Width,Height,Channel)
+    global_name is a string applied before every layer name for differenciation.
     '''
     if not CNN==None:
         i = 1
@@ -70,7 +72,45 @@ def CNN_init(CNN, inputrs, global_name):
         cnn_inner = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
     return cnn_inner, reduction, nb_filters
 
-def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
+def patched_cnn_init(CNN, inputrs, global_name=""):
+    '''
+    This function allows to create an CNN defined in an init_file.
+    CNN is composed of two array:
+        -First contains either -1 for MaxPooling2D layer or a positive integer X for a Conv2DLayer with X filters
+        -Second array contains the kernel size k1,k2 for each layer
+    This function worked on a sequence on patch of an image instead of image directly
+    inputrs must be of shape(Sample,Time,Width,Height,Channel)
+    global_name is a string applied before every layer name for differenciation.
+    '''
+    if not CNN==None:
+        i = 1
+        cpt_conv = 2
+        cpt_pool = 1
+        reduction = [1,1]
+        n = CNN[0][0]
+        k1,k2 = CNN[1][0:2]
+        nb_filters = n
+        conv_layer = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name=global_name + 'conv1')
+        cnn_inner = TimeDistributed(conv_layer)(inputrs)
+        while i < len(CNN[0]):
+            n = CNN[0][i]
+            k1,k2 = CNN[1][2*i:2*i+2]
+            if (n > 0):
+                conv_layer = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name=global_name + 'conv'+str(cpt_conv))
+                cnn_inner = TimeDistributed(conv_layer)(cnn_inner)
+                cnn_inner = BatchNormalization(name="bnp"+str(cpt_conv))(cnn_inner)
+                cpt_conv = cpt_conv + 1
+                nb_filters = n
+            else:
+                max_layer = MaxPooling2D(pool_size=(k1,k2),name=global_name + 'max'+str(cpt_pool))
+                cnn_inner = TimeDistributed(max_layer)(cnn_inner)
+                reduction[0] = reduction[0]*k1
+                reduction[1] = reduction[1]*k2
+                cpt_pool = cpt_pool + 1
+            i = i+1
+    return cnn_inner, reduction, nb_filters
+
+def PatchedConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
               unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
@@ -116,24 +156,26 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
         raise TypeError
     if hidden_dim is None:
         hidden_dim = output_dim
-
-    input_shape = (shape[1], shape[2], 1)
-    img_w = input_shape[0]
-    img_h = input_shape[1]
+    input_shape = shape[1:] + (1,)
+    img_w = input_shape[1]
+    img_h = input_shape[2]
+    dense_cnn_size = 1024
     _input = Input(batch_shape=shape, name='the_input')
     _input._keras_history[0].supports_masking = True
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
     global_name = "ord"
     #Adding all the CNN layers described in the init file or just a 3-layers CNN if nothing is given
-    cnn_inner, reduction, nb_filters = CNN_init(CNN, _inputrs, global_name)
+    cnn_inner, reduction, nb_filters = patched_cnn_init(CNN, _inputrs, global_name)
 
     # Reshape to correct rnn inputs
     conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
     
     #RNN Encoder Part
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
-    postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
+    cnn_inner = Reshape((input_shape[0],-1))(cnn_inner)
+    cnn_out = TimeDistributed(Dense(dense_cnn_size))(cnn_inner)
+    postcshape = (shape[0],input_shape[0],dense_cnn_size)
+    
     if Encoder==None:
         Encoder=[hidden_dim]*depth[0]
     else:
@@ -142,8 +184,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     encoder = RecurrentSequential(unroll=unroll, stateful=stateful, 
                                 #   return_states=True, return_all_states=True,
                                   return_sequences=True, name =global_name + 'encoder')
-    bi = (shape[0],)+(conv_to_rnn_dims[1],)
-    encoder.add(LSTMCell(Encoder[0], batch_input_shape=bi))
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=postcshape[1:]))
     
     for k in range(1, depth[0]):
         encoder.add(Dropout(dropout))
@@ -175,9 +216,9 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
                                   unroll=unroll, stateful=stateful, name='decoder')
     decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
     if depth[1] == 1:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
     else:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
         for k in range(depth[1] - 2):
             decoder.add(Dropout(dropout))
             decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
@@ -188,7 +229,6 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     decoded = decoder(encoded)
     output = Softmax(name = 'the_output')(decoded)
     model = Model(inputs, output)
-    model.summary()
     return model
 
 def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_shape=None,
@@ -318,6 +358,128 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
             model.get_layer(index=i).set_weights(w)
     return model
 
+def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
+              batch_size=None, input_shape=None, input_length=None,
+              input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
+              unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
+              CNN=None, Encoder=None, Decoder=None):
+    '''
+    This is an attention Seq2seq model with convolutionnal layers before for features extraction.
+    Here, there is a soft allignment between the input and output sequence elements.
+    A bidirection encoder is used by default. There is no hidden state transfer in this
+    model.
+
+    The  math:
+
+            Encoder:
+            X = Input Sequence of length m.
+            H = Bidirection_LSTM(X); Note that here the LSTM has return_sequences = True,
+            so H is a sequence of vectors of length m.
+
+            Decoder:
+    y(i) = LSTM(s(i-1), y(i-1), v(i)); Where s is the hidden state of the LSTM (h and c)
+    and v (called the context vector) is a weighted sum over H:
+
+    v(i) =  sigma(j = 0 to m-1)  alpha(i, j) * H(j)
+
+    The weight alpha[i, j] for each hj is computed as follows:
+    energy = a(s(i-1), H(j), alpha(i-1))
+    alpha = softmax(energy)
+    Where a is a feed forward network.
+
+    '''
+    if isinstance(depth, int):
+        depth = (depth, depth)
+    if batch_input_shape:
+        shape = batch_input_shape
+    elif input_shape:
+        shape = (batch_size,) + input_shape
+    elif input_dim:
+        if input_length:
+            shape = (batch_size,) + (input_length,) + (input_dim,)
+        else:
+            shape = (batch_size,) + (None,) + (input_dim,)
+    else:
+        # TODO Proper error message
+        raise TypeError
+    if hidden_dim is None:
+        hidden_dim = output_dim
+
+    input_shape = (32,shape[1]/32, shape[2], 1)
+    img_w = input_shape[0]
+    img_h = input_shape[1]
+    _input = Input(batch_shape=shape, name='the_input')
+    _input._keras_history[0].supports_masking = True
+    #Reshaping input for convlayer
+    _inputrs = Reshape(target_shape=input_shape)(_input)
+    global_name = "ord"
+    #Adding all the CNN layers described in the init file or just a 3-layers CNN if nothing is given
+    cnn_inner, reduction, nb_filters = patched_cnn_init(CNN, _inputrs, global_name)
+
+    # Reshape to correct rnn inputs
+    conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
+    
+    #RNN Encoder Part
+    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
+    cnn_out = TimeDistributedDense()
+    postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
+    if Encoder==None:
+        Encoder=[hidden_dim]*depth[0]
+    else:
+        if len(Encoder)<depth[0]:
+            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
+    encoder = RecurrentSequential(unroll=unroll, stateful=stateful, 
+                                #   return_states=True, return_all_states=True,
+                                  return_sequences=True, name =global_name + 'encoder')
+    bi = (shape[0],)+(conv_to_rnn_dims[1],)
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=bi))
+    
+    for k in range(1, depth[0]):
+        encoder.add(Dropout(dropout))
+        encoder.add(LSTMCell(Encoder[k]))
+
+    if bidirectional:
+        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
+        encoder.forward_layer.build(postcshape)
+        encoder.backward_layer.build(postcshape)
+        # patch
+        encoder.layer = encoder.forward_layer
+
+    encoded = encoder(cnn_out)
+    #State_transfer is not currently supported
+    # if (state_transfer):
+    #     encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
+    #     encoder_states._keras_shape = encoded_outputs._keras_shape
+    #     encoded = concatenate([encoded_outputs,encoder_states], axis=1)
+    # else :
+    #     encoded = encoder(cnn_out)
+
+    if Decoder==None:
+        Decoder=[hidden_dim]*depth[1]
+    else:
+        if len(Decoder)<depth[1]:
+            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
+    
+    decoder = RecurrentSequential(decode=True, output_length=output_length,
+                                  unroll=unroll, stateful=stateful, name='decoder')
+    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
+    if depth[1] == 1:
+        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+    else:
+        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
+        for k in range(depth[1] - 2):
+            decoder.add(Dropout(dropout))
+            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
+        decoder.add(Dropout(dropout))
+        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
+    
+    inputs = [_input]
+    decoded = decoder(encoded)
+    output = Softmax(name = 'the_output')(decoded)
+    model = Model(inputs, output)
+    model.summary()
+    return model
+
 class VLW(Callback):
     '''
         Callback used for dynamic loss weights variation during training
@@ -336,7 +498,6 @@ class VLW(Callback):
             K.set_value(self.alpha, K.get_value(self.alpha) + self.delta)
             K.set_value(self.beta, K.get_value(self.beta) - self.delta)
 
-                
 def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
@@ -381,7 +542,7 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
 
     #Creation of the custom CNN describe in the init file or using a basic CNN
     global_name = "ord"
-    cnn_inner, reduction, nb_filters = CNN_init(CNN, _inputrs, global_name)
+    cnn_inner, reduction, nb_filters = cnn_init(CNN, _inputrs, global_name)
 
     # Reshape to correct rnn inputs
     conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)

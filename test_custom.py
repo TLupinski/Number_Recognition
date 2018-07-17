@@ -80,15 +80,11 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
     act = 'relu'
 
     dir_path = os.path.join(OUTPUT_DIR,run_name)
-    # model = load_model("./data/output/"+run_name+"/model.h5",custom_objects=custom_model.get_custom(type_model))
-    # inp = model.get_layer('the_input')
-    # inputs = inp.input
-    # out = model.get_layer('the_output')
-    # y_pred = out.output
-    # test_func = K.function([inputs], [y_pred])
-    model, test_f, _ = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen, **kwargs)
-    weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
-    model.load_weights(weight_file)
+    model = load_model("./data/output/"+run_name+"/model.h5",custom_objects=custom_model.get_custom(type_model))
+    model.summary()
+    # model, test_f, _ = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen, **kwargs)
+    # weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
+    # model.load_weights(weight_file)
 
     #print 'Compiling model'
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss

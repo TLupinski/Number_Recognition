@@ -156,10 +156,6 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
         print('NOT IMPLEMENTED !!!')
 
     channels = 1
-    if channels==1 :
-        input_shape = (img_w, img_h)
-    else:
-        input_shape = (img_w,img_h,channels)
 
     print('Build text image generator')
     #Generator used for training : load images, ground truth for training et validation set. See network_helper for more
@@ -167,7 +163,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=8,
+                                 downsample_factor=4,
                                  val_split=val_split,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
@@ -176,9 +172,10 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
                                  memory_usage_limit=batch_memory_usage,
                                  channels=channels,
                                  use_ctc=use_ctc,
-                                 noise=None)
+                                 noise=None,
+                                 use_patches=True)
     minibatch_size = img_gen.minibatch_size
-
+    input_shape = img_gen.input_shape
     print('Building model...')
     #Current model
     model = None
@@ -217,8 +214,8 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
         callbacks = callbacks + [model_cb]
 
     #Save model
-    # modelpath = "./data/output/"+run_name+"/model.h5"
-    # model.save(modelpath,overwrite=True)
+    modelpath = "./data/output/"+run_name+"/model.h5"
+    model.save(modelpath,overwrite=True)
 
     #Start training
     if (val_split > 0.0):

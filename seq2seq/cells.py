@@ -148,7 +148,11 @@ class AltAttentionDecoderCell(ExtendedRNNCell):
     def num_states(self):
         return 4
 class AltAttentionDecoderCellC(ExtendedRNNCell):
-
+    '''
+        Another iteration of the AttentionDecoderCell, with this time no dependance on the size of the image
+            a_tm1 is now treated with a Convolutional Layer
+            c_tm1 is now concatenanted after each input and didn't
+    '''
     def __init__(self, hidden_dim=None, **kwargs):
         self.input_ndim = 3
         super(AltAttentionDecoderCellC, self).__init__(**kwargs)
@@ -183,25 +187,18 @@ class AltAttentionDecoderCellC(ExtendedRNNCell):
         dX = Dense(1,
                   kernel_initializer=self.kernel_initializer,
                   kernel_regularizer=self.kernel_regularizer, name="DenseX")
-        dE = Dense(input_length,
-                  kernel_initializer=self.kernel_initializer,
-                  kernel_regularizer=self.kernel_regularizer, name="DenseE")
-        dT = Dense(1,
-                  kernel_initializer=self.kernel_initializer,
-                  kernel_regularizer=self.kernel_regularizer, name="DenseT")
 
-        _x = dX(X)
-        _E = dE(c_tm1)
-        _E = Reshape(target_shape=(input_length,))(_E)
+        C = Lambda(lambda x: K.repeat(x, input_length), output_shape=(input_length, input_dim))(c_tm1)
+        _xC = concatenate([X, C])
+
+        _x = dX(_xC)
         ra_tm1 = Reshape(target_shape=(input_length,1))(a_tm1)
         _A = Conv1D(1, 15,use_bias=False,activation='tanh', padding='same')(ra_tm1)
-        en = add([_x,_E,_A])
+        en = add([_x,_A])
         en = Activation('tanh')(en)
-        energy =dT(en)
-        alpha = Softmax(axis=-2, name='alpha')(energy)
-        alphaD = Identity(name='alphaD')(alpha)
+        alpha = Softmax(axis=-2, name='alpha')(en)
 
-        _X = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=(1, 1)), output_shape=(input_dim,))([alphaD, X])
+        _X = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=(1, 1)), output_shape=(input_dim,))([alpha, X])
         _X = Reshape(target_shape=(input_dim,))(_X)
         y1 = V(_X)
         y2 = U(h_tm1)
@@ -268,10 +265,10 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
         dT = Dense(1,
                   kernel_initializer=self.kernel_initializer,
                   kernel_regularizer=self.kernel_regularizer, name="DenseT")
-        # dA = Dense(input_length,
-        #           kernel_initializer= GaussianInit(),
-        #           bias_initializer = BiasInit(),
-        #           kernel_regularizer=self.kernel_regularizer, name="DenseA")
+        dA = Dense(input_length,
+                   kernel_initializer= GaussianInit(),
+                   bias_initializer = BiasInit(),
+                   kernel_regularizer=self.kernel_regularizer, name="DenseA")
         _x = dX(X)
         _E = dE(c_tm1)
         _E = Reshape(target_shape=(input_length,))(_E)

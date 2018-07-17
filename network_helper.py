@@ -14,6 +14,7 @@ import glob
 import cv2
 from tqdm import tqdm
 from keras.utils import plot_model
+from skimage.util import view_as_windows
 
 t = 0
 
@@ -57,6 +58,10 @@ def noisy(noise_typ,image):
       gauss = gauss.reshape(row,col,ch)        
       noisy = image + image * gauss
       return noisy
+
+def patching_images(img, patch_size, patch_step):
+    pat = view_as_windows(img, patch_size, step = patch_step)[:,0]
+    return pat
 
 def translate_array(array,alphabet, del_spaces=False):
     """
@@ -149,7 +154,8 @@ class TextImageGenerator(keras.callbacks.Callback):
     def __init__(self, train_folder, img_w, img_h, downsample_factor, val_split,
                  alphabet, use_ctc=False, minibatch_size=-1, maxbatch_size=-1, 
                  absolute_max_string_len=16, max_samples=1000, noise=None,
-                 memory_usage_limit=2000000, acceptable_loss = 0, channels=1):
+                 memory_usage_limit=2000000, acceptable_loss = 0, channels=1,
+                 use_patches=False, patch_size = (32,32), patch_step=16):
         self.minibatch_size = minibatch_size
         self.img_w = img_w
         self.img_h = img_h
@@ -167,14 +173,23 @@ class TextImageGenerator(keras.callbacks.Callback):
         self.maxbatch_size = maxbatch_size
         self.acceptable_loss = acceptable_loss
         self.use_ctc = use_ctc
+        self.use_patches = use_patches
+        self.patch_size = patch_size
+        self.patch_step = patch_step
         self.lock = threading.Lock()
         self.noise = noise
         if maxbatch_size ==-1:
             self.maxbatch_size = int(memory_usage_limit / (img_w*img_h))
+        if use_patches:
+            step = img_w/patch_step-1
+            self.input_shape = (step, patch_size[0], patch_size[1])
+        else : 
+            self.input_shape = (img_w, img_h)
         if channels == 1:
             self.readmode = 0
         else :
             self.readmode = 1
+            self.input_shape = sef.input_shape + (channels,)
         print('Build image list...')
         self.build_image_list()
         print('Split train/val set')
@@ -247,7 +262,10 @@ class TextImageGenerator(keras.callbacks.Callback):
             img = cv2.imread(im_path, self.readmode)
             if (self.noise!=None):
                 img = noisy(self.noise,img)
-            return np.divide(np.transpose(img ,(1,0)),127.5)-1.0
+            img = np.divide(np.transpose(img ,(1,0)),127.5)-1.0
+            if (self.use_patches):
+                img = patching_images(img, self.patch_size, self.patch_step)
+            return img
         else:
             print("File not found {}".format(self.train_data[index]))
         return ""
@@ -258,7 +276,15 @@ class TextImageGenerator(keras.callbacks.Callback):
     #Load one image from validation set
     def get_val_image(self, index):
         im_path = self.val_data[index]['image']
-        return np.divide(np.transpose(cv2.imread(im_path, self.readmode),(1,0)),127.5)-1.0
+        if os.path.exists(im_path):
+            img = cv2.imread(im_path, self.readmode)
+            img = np.divide(np.transpose(img ,(1,0)),127.5)-1.0
+            if (self.use_patches):
+                img = patching_images(img, self.patch_size, self.patch_step)
+            return img
+        else:
+            print("File not found {}".format(self.train_data[index]))
+        return ""
 
     #Return ground truth from validation set
     def get_val_text(self, index):
@@ -281,9 +307,9 @@ class TextImageGenerator(keras.callbacks.Callback):
         # width and height are backwards from typical Keras convention
         # because width is the time dimension when it gets fed into the RNN
         if K.image_data_format() == 'channels_first':
-            X_data = np.ones([size, self.img_w, self.img_h])
+            X_data = np.ones((size,) + self.input_shape)
         else:
-            X_data = np.ones([size, self.img_w, self.img_h])
+            X_data = np.ones((size,) + self.input_shape)
 
         if self.use_ctc:
             input_length = np.zeros([size, 1])

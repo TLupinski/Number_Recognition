@@ -16,25 +16,29 @@ import network_helper as nt
 from network_helper import TextImageGenerator, ctc_lambda_func
 import seq2seq
 from seq2seq import *
-from seq2seq.cells import LSTMDecoderCell, AttentionDecoderCell
 import recurrentshop
 from recurrentshop import RecurrentSequential
 from recurrentshop.engine import _OptionalInputPlaceHolder
 
 '''
 Defined custom models used in train_custom and test_custom
-5 Models currently implemented :
-CNN_RNN_CTC :       Basic model using a 2-Layer CNN followed by 2 Bidirectionnal GRU and a CTC decoder
-ResCGRU:            Model using an Residual CNN followed by Bidirectionnal GRU layers based on [1]
-VHLSTM              Model using a CNN followed by an Vertical LSTM then an Horizontal LSTM based on nothing.
-AttentionBiLSTM :   Encoder-Decoder Attention Model using cells of Seq2Seq module for Keras
-Attention:          Encoder-Decoder Attention Model using modified AttentionSeq2Seq from Seq2Seq module for keras
+6 Models currently implemented :
+CNNRNNCTC       :   Basic model using a 2-Layer CNN followed by 2 Bidirectionnal GRU and a CTC decoder
+ResCNNRNNCTC    :   Basic model using a CNN with 2 Residual Block followed by 2 Bidirectionnal GRU and a CTC decoder
+ResCGRU         :   Model using an Residual CNN followed by Bidirectionnal GRU layers described in [1].
+ResCClassic     :   Model based on ResCGRU but the CNN is replaced by a classical ResidualCNN with residual blocks.
+VHLSTM          :   Model using a CNN followed by an Vertical LSTM then an Horizontal LSTM
+Attention       :   Encoder-Decoder Attention Model using modified AttentionSeq2Seq from Seq2Seq module for keras
+PatchedAttention:   Encoder-Decoder Attention Model working with CNN applied to image patch instead of the complete image directly
 DisplayAttention:   Truncated Attention model used for visualization of intermediaire outputs.
+JointCTCAtt     :   Encoder-Decoder Attention Model with an additional CTC output after the Encoder.
 
 #Argument needed:
     -input_shape : Shape of the inputs that will be fed to the model
     -output_shape: Shape of the output of the model (Needed only for attention model)
     -img_gen     : Generator of images / Can be replaced by two argument : number_of_classes and max_output_size
+
+#Reference:
 '''
 
 def get_custom(type_model):
@@ -48,6 +52,8 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         return Model_Attention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='DisplayAttention'):
         return Model_DisplayAttention(input_shape, output_shape, img_gen, weight_file, **kwargs)
+    if (type_model=='PatchedAttention'):
+        return Model_PatchedAttention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='CTCAttention'):
         return Model_CTCAttention(input_shape, output_shape, img_gen, **kwargs)
     if (type_model=='CTCFrozenAttention'):
@@ -68,6 +74,16 @@ def get_model(type_model, input_shape, output_shape, img_gen, weight_file=None, 
         
 def Model_Attention(input_shape, output_shape, img_gen, loss='mse', opt='sgd', **kwargs):
     model = ConvAttentionSeq2Seq(bidirectional=True,input_length=input_shape[0], input_dim=input_shape[1], hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
+    model.compile(loss=loss, optimizer=opt,metrics=['categorical_accuracy'])
+    inp = model.get_layer('the_input')
+    inputs = inp.input
+    out = model.get_layer('the_output')
+    y_pred = out.output
+    test_func = K.function([inputs], [y_pred])
+    return model, test_func, None
+
+def Model_PatchedAttention(input_shape, output_shape, img_gen, loss='mse', opt='sgd', **kwargs):
+    model = PatchedConvAttentionSeq2Seq(bidirectional=True,input_shape = input_shape, hidden_dim=64, output_length=output_shape[0], output_dim=output_shape[1], depth=(2,1), dropout=0.25, **kwargs)
     model.compile(loss=loss, optimizer=opt,metrics=['categorical_accuracy'])
     inp = model.get_layer('the_input')
     inputs = inp.input
@@ -245,7 +261,6 @@ def Model_ResCNN_RNN_CTC(input_shape, img_gen):
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
     return model, test_func, None
 
-
 def Model_ResCGRU(input_shape, img_gen):
     # Input Parameters
     learning_rate=0.0001
@@ -395,9 +410,7 @@ def Model_ResCClasic(input_shape, img_gen):
     rd = 2
     
     conv_1 = Conv2D(64, (5,5), padding='same', activation=act, kernel_initializer='he_normal', name='conv1')(input_data_rs)
-    print(conv_1)
     mp_0 = MaxPooling2D(pool_size=(3,3),strides=(1,1), padding='same')(conv_1)
-    print(mp_0)
     res_1 = res_connection(mp_0, rd, 64, 3, act)
     mp_1 = MaxPooling2D(pool_size=(2,2),name="max1")(res_1)
     res_2 = res_connection(mp_1, rd, 128, 3, act)
@@ -407,8 +420,6 @@ def Model_ResCClasic(input_shape, img_gen):
     res_4 = res_connection(mp_3, rd, 512, 3, act)
 
     conv_to_rnn_dims = ((img_w // (8)), ((img_h // (8))) * 512)
-    print(res_4)
-    print(conv_to_rnn_dims)
     rnn_input = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(res_4)
 
     # cuts down input size going into RNN:
@@ -481,7 +492,6 @@ def Model_VHLSTM(input_shape, img_gen):
                    name='conv2')(inner)
                    
     maxpool2 = MaxPooling2D(pool_size=(pool_size, pool_size), name='max2')(inner)
-    print(maxpool2)
 
     # One layer of bidirectional Vertical GRUs
 
@@ -500,7 +510,6 @@ def Model_VHLSTM(input_shape, img_gen):
         temp_input = Lambda(lambda x: x[:,i,:,:])(maxpool2)
         gru_h = gru_h + [gru_vert(temp_input)]
     input_rnn = concatenate(gru_h,axis=1)
-    print(input_rnn)
     # Two layers of bidirectional Horizontal GRUs
     # GRU seems to work as well, if not better than LSTM:
     gru_1 = GRU(rnn_h_size, return_sequences=True, kernel_initializer='he_normal', kernel_regularizer=regularizers.l2(lambdad), name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(input_rnn)
@@ -533,78 +542,6 @@ def Model_VHLSTM(input_shape, img_gen):
 
     return model, test_func
 
-# Not working
-def Model_AttentionBiLSTM(input_shape, img_gen):
-    output_dim = 92
-    output_length = 1
-    hidden_dim = 7
-    depth = [1,1]
-    unroll = False
-    stateful = False
-    dropout = 0.2
-    bidirectional = False
-    if isinstance(depth, int):
-        depth = (depth, depth)
-    learning_rate=0.0001
-    momentum1=0.9
-    momentum2=0.999
-
-
-    #Network Parameters
-    conv_filters = 16
-    kernel_size = (3, 3)
-    pool_size = 2
-    time_dense_size = 50
-    rnn_size = 512
-    post_rnn_fcl_size = 100
-    act = 'relu'
-    img_w = input_shape[0]
-    img_h = input_shape[1]
-
-    input_data = Input(name='the_input', shape=input_shape, dtype='float32')
-    if len(input_shape) == 2:
-        inputrs = Reshape(target_shape=(input_shape[0],input_shape[1],1))(input_data)
-        inner = Conv2D(conv_filters, kernel_size, padding='same',
-                    activation=act, kernel_initializer='he_normal',
-                    name='conv1')(inputrs)
-    else :
-        inner = Conv2D(conv_filters, kernel_size, padding='same',
-                    activation=act, kernel_initializer='he_normal',
-                    name='conv1')(input_data)
-    inner = MaxPooling2D(pool_size=(pool_size, pool_size), name='max1')(inner)
-    inner = Conv2D(conv_filters, kernel_size, padding='same',
-                   activation=act, kernel_initializer='he_normal',
-                   name='conv2')(inner)
-    inner = MaxPooling2D(pool_size=(pool_size, pool_size), name='max2')(inner)
-
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2)) * conv_filters)
-    inner = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(inner)
-
-    # cuts down input size going into RNN:
-    inner = Dense(time_dense_size, activation=act, name='dense1')(inner)
-
-    rec_dropout = 0.2
-    dropout = 0.25
-    # Two layers of bidirectional GRUs
-    # GRU seems to work as well, if not better than LSTM:
-    gru_1 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
-    gru_1b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru1_b', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
-    gru_merged = add([gru_1,gru_1b])
-    gru_2 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru2', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
-    gru_2b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru2_b', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
-    attention = add([gru_2,gru_2b])
-    # attention = Attention(RNN(rnn_size, return_sequences=True))(gru_merged2)
-
-    model = Model(inputs=[input_data], outputs=[attention])
-
-    # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
-    adam = keras.optimizers.Adam(lr=learning_rate, beta_1=momentum1, beta_2=momentum2)
-    model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer=adam, metrics=['accuracy'])
-    model.summary()
-    # captures output of softmax so we can decode the output during visualization
-    #test_func = K.function(inputs, [y_pred])
-    return None, None
-
 #Dummy function to pass the ctc loss computed before as the true loss
 def ctc_loss(y_true, y_pred):
     return y_pred
@@ -614,6 +551,9 @@ def dum_loss(y_true,y_pred):
     return K.variable(0.0)
 
 def Model_Dummy(input_shape, output_shape):
+    '''
+        Model used for testing
+    '''
     # model = yolo(input_shape, output_shape)
     # model.summary()
     # for i in range(len(model.layers)):
@@ -640,7 +580,6 @@ def Model_Dummy(input_shape, output_shape):
     inner = MaxPooling2D(pool_size=pool_size, name='max2')(inner)
 
     conv_to_rnn_dims = (256 // (pool_size[0] ** 2), (32 // (pool_size[1] ** 2)) * conv_filters)
-    print(conv_to_rnn_dims)
     inner = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(inner)
 
 
