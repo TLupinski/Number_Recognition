@@ -118,7 +118,6 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
             num_proc = word_batch['the_input'].shape[0]
             res = test_func[0]([word_batch['the_input'][0:num_proc], word_batch['input_length_decode'][0:num_proc]])
             proba = res[0]
-            print(res[1:])
             decoded_res = res[1:][0]
             #decoded_res = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
             #print(decoded_res)

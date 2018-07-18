@@ -118,34 +118,54 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     lambdad = 0.0001
 
     #Network Parameters
-    conv_filters = 16
+    conv_filters = 64
     kernel_size = (3, 3)
     pool_size = 2
     time_dense_size = 64
     rnn_size = 64
     post_rnn_fcl_size = 100
-
     act = 'relu'
-
-    img_w = input_shape[0]
-    img_h = input_shape[1]
+    if len(input_shape) == 3:
+        img_w = input_shape[1]
+        img_h = input_shape[2]
+        use_patches = True
+    else : 
+        img_w = input_shape[0]
+        img_h = input_shape[1]
+        use_patches = False
 
     input_data = Input(name='the_input', shape=input_shape, dtype='float32')
     if (len(input_shape)<3):
         rs_shape = input_shape + (1,)
         input_data_rs = Reshape(target_shape=rs_shape)(input_data)
-        inner = Conv2D(conv_filters, kernel_size, padding='same',
+        conv0 = Conv2D(conv_filters, kernel_size, padding='same',
                     activation=act, kernel_initializer='he_normal',
-                    name='conv1')(input_data_rs)
+                    name='conv1')
+        if (use_patches):
+            conv0 = TimeDistributed(conv0)
+        inner = conv0(input_data_rs)
     else:
-        inner = Conv2D(conv_filters, kernel_size, padding='same',
+        conv0 = Conv2D(conv_filters, kernel_size, padding='same',
                     activation=act, kernel_initializer='he_normal',
-                    name='conv1')(input_data)
-    inner = MaxPooling2D(pool_size=(pool_size, pool_size), name='max1')(inner)
-    inner = Conv2D(conv_filters, kernel_size, padding='same',
+                    name='conv1')
+        if (use_patches):
+            conv0 = TimeDistributed(conv0)
+        inner = conv0(input_data_rs)
+    maxpool0 = MaxPooling2D(pool_size=(pool_size, pool_size), name='max1')
+    if (use_patches):
+        maxpool0 = TimeDistributed(maxpool0)
+    inner = maxpool0(inner)
+    conv_filters = conv_filters*2
+    conv1 = Conv2D(conv_filters, kernel_size, padding='same',
                    activation=act, kernel_initializer='he_normal',
-                   name='conv2')(inner)
-    inner = MaxPooling2D(pool_size=(pool_size, pool_size), name='max2')(inner)
+                   name='conv2')    
+    if (use_patches):
+        conv1 = TimeDistributed(conv1)
+    inner = conv2(inner)
+    maxpool1 = MaxPooling2D(pool_size=(pool_size, pool_size), name='max2')
+    if (use_patches):
+        maxpool1 = TimeDistributed(maxpool1)
+    inner = maxpool1(inner)
 
     conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2)) * conv_filters)
     inner = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(inner)
@@ -388,6 +408,23 @@ def res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
     x = Activation(activation)(x)
     return x
 
+def td_res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
+    from keras.layers import Conv2D, Activation, add
+    x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(i)
+    orig_x = x
+    x = Activation(activation)(x)
+    for aRes in range(0, residual_depth):
+        if aRes < residual_depth-1:
+            x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(x)
+            x = BatchNormalization()(x)
+            x = Activation(activation)(x)
+        else:
+            x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(x)
+            x = BatchNormalization()(x)
+    x = add([orig_x, x])
+    x = Activation(activation)(x)
+    return x
+
 def Model_ResCClasic(input_shape, img_gen):
     # Input Parameters
     learning_rate=0.0001
@@ -397,9 +434,9 @@ def Model_ResCClasic(input_shape, img_gen):
     K.set_learning_phase(1)
     # Network parameters
     kernel_size = (3, 3)
-    time_dense_size =100
+    time_dense_size =1024
     pool_size = 2
-    rnn_size = 100
+    rnn_size = 128
     post_rnn_fcl_size = 100
     act = 'relu'
     img_w = input_shape[0]
@@ -409,28 +446,29 @@ def Model_ResCClasic(input_shape, img_gen):
     input_data_rs = Reshape(target_shape=input_shape+(1,))(input_data)
     rd = 2
     
-    conv_1 = Conv2D(64, (5,5), padding='same', activation=act, kernel_initializer='he_normal', name='conv1')(input_data_rs)
-    mp_0 = MaxPooling2D(pool_size=(3,3),strides=(1,1), padding='same')(conv_1)
-    res_1 = res_connection(mp_0, rd, 64, 3, act)
-    mp_1 = MaxPooling2D(pool_size=(2,2),name="max1")(res_1)
-    res_2 = res_connection(mp_1, rd, 128, 3, act)
-    mp_2 = MaxPooling2D(pool_size=(2,2),name="max2")(res_2)
-    res_3 = res_connection(mp_2, rd, 256, 3, act)
-    mp_3 = MaxPooling2D(pool_size=(2,2),name="max3")(res_3)
-    res_4 = res_connection(mp_3, rd, 512, 3, act)
+    conv_filters=64
+    conv_1 = TimeDistributed(Conv2D(conv_filters, (5,5), padding='same', activation=act, kernel_initializer='he_normal', name='conv1'))(input_data_rs)
+    mp_0 = TimeDistributed(MaxPooling2D(pool_size=(3,3),strides=(1,1), padding='same'))(conv_1)
+    res_1 = td_res_connection(mp_0, rd, conv_filters, 3, act)
+    mp_1 = TimeDistributed(MaxPooling2D(pool_size=(2,2),name="max1"))(res_1)
+    conv_filters = conv_filters*2
+    res_2 = td_res_connection(mp_1, rd, conv_filters, 3, act)
+    mp_2 = TimeDistributed(MaxPooling2D(pool_size=(2,2),name="max2"))(res_2)
+    conv_filters = conv_filters*2
+    res_3 = td_res_connection(mp_2, rd, conv_filters, 3, act)
+    # mp_3 = MaxPooling2D(pool_size=(2,2),name="max3")(res_3)
+    # res_4 = res_connection(mp_3, rd, 512, 3, act)
 
-    conv_to_rnn_dims = ((img_w // (8)), ((img_h // (8))) * 512)
-    rnn_input = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(res_4)
-
+    cnn_inner = Reshape((input_shape[0],-1))(res_3)
+    cnn_out = TimeDistributed(Dense(time_dense_size))(cnn_inner)
     # cuts down input size going into RNN:
-    inner = Dense(time_dense_size, activation=act, name='dense1')(rnn_input)
 
     rec_dropout = 0.2
     dropout = 0.25
     # Two layers of bidirectional GRUs
     # GRU seems to work as well, if not better than LSTM:
-    gru_1 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
-    gru_1b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru1_b', recurrent_dropout=rec_dropout, dropout=dropout)(inner)
+    gru_1 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru1', recurrent_dropout=rec_dropout, dropout=dropout)(cnn_out)
+    gru_1b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru1_b', recurrent_dropout=rec_dropout, dropout=dropout)(cnn_out)
     gru_merged = add([gru_1,gru_1b])
     gru_2 = LSTM(rnn_size, return_sequences=True, kernel_initializer='he_normal', name='gru2', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)
     gru_2b = LSTM(rnn_size, return_sequences=True, go_backwards=True, kernel_initializer='he_normal', name='gru2_b', recurrent_dropout=rec_dropout, dropout=dropout)(gru_merged)

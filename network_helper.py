@@ -155,11 +155,14 @@ class TextImageGenerator(keras.callbacks.Callback):
                  alphabet, use_ctc=False, minibatch_size=-1, maxbatch_size=-1, 
                  absolute_max_string_len=16, max_samples=1000, noise=None,
                  memory_usage_limit=2000000, acceptable_loss = 0, channels=1,
-                 use_patches=False, patch_size = (32,32), patch_step=16):
+                 use_patches=False, patch_size = (16,32), patch_step=12):
         self.minibatch_size = minibatch_size
         self.img_w = img_w
         self.img_h = img_h
-        self.downsample_factor = downsample_factor
+        if use_patches:
+            self.decode_length = patch_size[0]
+        else:
+            self.decode_length = img_w/downsample_factor
         self.val_split = val_split
         self.alphabet = alphabet
         self.blank_label = self.get_output_size() - 1
@@ -181,7 +184,7 @@ class TextImageGenerator(keras.callbacks.Callback):
         if maxbatch_size ==-1:
             self.maxbatch_size = int(memory_usage_limit / (img_w*img_h))
         if use_patches:
-            step = img_w/patch_step-1
+            step = img_w/patch_step - (patch_size[0]-patch_step)/patch_step
             self.input_shape = (step, patch_size[0], patch_size[1])
         else : 
             self.input_shape = (img_w, img_h)
@@ -264,7 +267,7 @@ class TextImageGenerator(keras.callbacks.Callback):
                 img = noisy(self.noise,img)
             img = np.divide(np.transpose(img ,(1,0)),127.5)-1.0
             if (self.use_patches):
-                img = patching_images(img, self.patch_size, self.patch_step)
+                img = patching_images(np.ascontiguousarray(img), self.patch_size, self.patch_step)
             return img
         else:
             print("File not found {}".format(self.train_data[index]))
@@ -280,7 +283,7 @@ class TextImageGenerator(keras.callbacks.Callback):
             img = cv2.imread(im_path, self.readmode)
             img = np.divide(np.transpose(img ,(1,0)),127.5)-1.0
             if (self.use_patches):
-                img = patching_images(img, self.patch_size, self.patch_step)
+                img = patching_images(np.ascontiguousarray(img), self.patch_size, self.patch_step)
             return img
         else:
             print("File not found {}".format(self.train_data[index]))
@@ -332,7 +335,7 @@ class TextImageGenerator(keras.callbacks.Callback):
                 X_data[i] = self.get_val_image(index+i)
                 text = self.get_val_text(index+i)
             if self.use_ctc:
-                input_length[i] = self.img_w // self.downsample_factor
+                input_length[i] = self.decode_length
                 label_length[i] = len(text)
                 source_str.append(text)
                 labels_ctc[i, 0:len(text)] = text_to_labels(text, self.alphabet, -1)

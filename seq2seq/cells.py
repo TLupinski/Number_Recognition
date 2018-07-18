@@ -193,12 +193,13 @@ class AltAttentionDecoderCellC(ExtendedRNNCell):
 
         _x = dX(_xC)
         ra_tm1 = Reshape(target_shape=(input_length,1))(a_tm1)
-        _A = Conv1D(1, 15,use_bias=False,activation='tanh', padding='same')(ra_tm1)
+        _A = Conv1D(1, 7,use_bias=False,activation='tanh', padding='same')(ra_tm1)
         en = add([_x,_A])
         en = Activation('tanh')(en)
         alpha = Softmax(axis=-2, name='alpha')(en)
+        alphaD = Identity(name='alphaD')(alpha)
 
-        _X = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=(1, 1)), output_shape=(input_dim,))([alpha, X])
+        _X = Lambda(lambda x: K.batch_dot(x[0], x[1], axes=(1, 1)), output_shape=(input_dim,))([alphaD, X])
         _X = Reshape(target_shape=(input_dim,))(_X)
         y1 = V(_X)
         y2 = U(h_tm1)
@@ -304,6 +305,39 @@ class AltAttentionDecoderCellD(AltAttentionDecoderCell):
     def get_config(self):
         config = {'hidden_dim': self.hidden_dim}
         base_config = super(AltAttentionDecoderCellD, self).get_config()
+        config.update(base_config)
+        return config
+           
+    @property
+    def num_states(self):
+        return 4
+
+class AttentionDecoderCellDisplay(ExtendedRNNCell):
+    '''
+        Special Attention Cell Wrapper used to output the attention vector 
+        instead of the LSTM output
+    '''
+    def __init__(self, attention_cell, **kwargs):
+        self.input_ndim = 3
+        self.cell = attention_cell
+        super(ExtendedRNNCell, self).__init__(**kwargs)
+
+    def build_model(self, input_shape):
+        cell_model = self.cell.build_model(input_shape)
+        X = cell_model.get_layer(name='input').input
+        h_tm1 = cell_model.get_layer(name = 'pv_output').input
+        c_tm1 = cell_model.get_layer(name = 'pv_state').input
+        alpha_tm1 = cell_model.get_layer(name = 'pv_alpha').input
+
+        alphaD = cell_model.get_layer(name='alphaD').output
+        h = cell_model.get_layer(name='h').output
+        c = cell_model.get_layer(name='c').output
+        alpha = cell_model.get_layer(name='alpha').output
+        model = Model(inputs=[X,h_tm1,c_tm1,alpha_tm1],outputs=[alphaD,h,c,alpha])
+        return model
+
+    def get_config(self):
+        base_config = super(AltAttentionDecoderCellC, self).get_config()
         config.update(base_config)
         return config
            

@@ -110,11 +110,67 @@ def patched_cnn_init(CNN, inputrs, global_name=""):
             i = i+1
     return cnn_inner, reduction, nb_filters
 
+def encoder_init(input, postcshape, hidden_dim, depth, dropout=0, seq2seq=True, bidirectional=True, unroll=False, stateful=False, Encoder=None, global_name="", return_model = False):
+    if Encoder==None:
+        Encoder=[hidden_dim]*depth[0]
+    else:
+        if len(Encoder)<depth[0]:
+            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
+    encoder = RecurrentSequential(unroll=unroll, stateful=stateful, 
+                                #   return_states=True, return_all_states=True, AllStateTransfer needs modification in the tensorflow backend
+                                  return_sequences=True, name =global_name + 'encoder')
+    encoder.add(LSTMCell(Encoder[0], batch_input_shape=postcshape[1:]))
+    
+    for k in range(1, depth[0]):
+        encoder.add(Dropout(dropout))
+        encoder.add(LSTMCell(Encoder[k]))
+
+    if bidirectional:
+        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
+        encoder.forward_layer.build(postcshape)
+        encoder.backward_layer.build(postcshape)
+        # patch
+        encoder.layer = encoder.forward_layer
+    if return_model:
+        enc_input = Input(shape=postcshape[1:], name='encoder_input')
+        encoded_out = encoder(enc_input)
+        encoder_model = Model(inputs=[enc_input], outputs=[encoded_out])
+        return encoder_model(input)
+    return encoder(input)
+    #State_transfer is not currently supported
+    # if (state_transfer):
+    #     encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
+    #     encoder_states._keras_shape = encoded_outputs._keras_shape
+    #     encoded = concatenate([encoded_outputs,encoder_states], axis=1)
+    # else :
+    #     encoded = encoder(cnn_out)
+
+def decoder_init(input, shape, input_dim, hidden_dim, output_dim, output_length, depth, dropout = 0, bidirectional=True, unroll=False, stateful=False, Decoder=None, AttentionCell=AltAttentionDecoderCell, global_name = "", return_model = False):
+    if Decoder==None:
+        Decoder=[hidden_dim]*depth[1]
+    else:
+        if len(Decoder)<depth[1]:
+            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
+    
+    decoder = RecurrentSequential(decode=True, output_length=output_length,
+                                  unroll=unroll, stateful=stateful, name='decoder')
+    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], input_dim)))
+    if depth[1] == 1:
+        decoder.add(AttentionCell)
+    else:
+        decoder.add(AttentionCell)
+        for k in range(depth[1] - 2):
+            decoder.add(Dropout(dropout))
+            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
+        decoder.add(Dropout(dropout))
+        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
+    return decoder(input)
+    
 def PatchedConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
               unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
-              CNN=None, Encoder=None, Decoder=None):
+              CNN=None, Encoder=None, Decoder=None, display_attention=False):
     '''
     This is an attention Seq2seq model with convolutionnal layers before for features extraction.
     Here, there is a soft allignment between the input and output sequence elements.
@@ -176,58 +232,20 @@ def PatchedConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=Non
     cnn_out = TimeDistributed(Dense(dense_cnn_size))(cnn_inner)
     postcshape = (shape[0],input_shape[0],dense_cnn_size)
     
-    if Encoder==None:
-        Encoder=[hidden_dim]*depth[0]
-    else:
-        if len(Encoder)<depth[0]:
-            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
-    encoder = RecurrentSequential(unroll=unroll, stateful=stateful, 
-                                #   return_states=True, return_all_states=True,
-                                  return_sequences=True, name =global_name + 'encoder')
-    encoder.add(LSTMCell(Encoder[0], batch_input_shape=postcshape[1:]))
-    
-    for k in range(1, depth[0]):
-        encoder.add(Dropout(dropout))
-        encoder.add(LSTMCell(Encoder[k]))
+    encoded = encoder_init(cnn_out, postcshape, hidden_dim, depth, dropout, True, bidirectional, unroll, stateful, Encoder)
+    encoded_shape = (shape[0], shape[1], Encoder[-1])
+    #Decoder Part
+    AttentionCell = AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0])
+    if display_attention:
+        Decoder = [Decoder[0]]
+        AttentionCell = AttentionDecoderCellDisplay(AttentionCell)
+    decoded = decoder_init(encoded, encoded_shape, Encoder[-1], hidden_dim, output_dim, output_length, depth, dropout, bidirectional, unroll, stateful, Decoder, AttentionCell)
 
-    if bidirectional:
-        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
-        encoder.forward_layer.build(postcshape)
-        encoder.backward_layer.build(postcshape)
-        # patch
-        encoder.layer = encoder.forward_layer
-
-    encoded = encoder(cnn_out)
-    #State_transfer is not currently supported
-    # if (state_transfer):
-    #     encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
-    #     encoder_states._keras_shape = encoded_outputs._keras_shape
-    #     encoded = concatenate([encoded_outputs,encoder_states], axis=1)
-    # else :
-    #     encoded = encoder(cnn_out)
-
-    if Decoder==None:
-        Decoder=[hidden_dim]*depth[1]
-    else:
-        if len(Decoder)<depth[1]:
-            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
-    
-    decoder = RecurrentSequential(decode=True, output_length=output_length,
-                                  unroll=unroll, stateful=stateful, name='decoder')
-    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
-    if depth[1] == 1:
-        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
-    else:
-        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
-        for k in range(depth[1] - 2):
-            decoder.add(Dropout(dropout))
-            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
-        decoder.add(Dropout(dropout))
-        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
-    
     inputs = [_input]
-    decoded = decoder(encoded)
-    output = Softmax(name = 'the_output')(decoded)
+    if display_attention:
+        output = Identity(name = 'the_output')(decoded)
+    else:
+        output = Softmax(name = 'the_output')(decoded)
     model = Model(inputs, output)
     return model
 
@@ -269,87 +287,25 @@ def TruncConvAttentionSeq2Seq(output_dim, output_length, filename, batch_input_s
     _input._keras_history[0].supports_masking = True
     #Reshaping input for convlayer
     _inputrs = Reshape(target_shape=input_shape)(_input)
-    K.set_learning_phase(0)
-    if not CNN==None:
-        i = 1
-        cpt_conv = 2
-        cpt_pool = 1
-        reduction = [1,1]
-        n = CNN[0][0]
-        k1,k2 = CNN[1][0:2]
-        nb_filters = n
-        cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
-        while i < len(CNN[0]):
-            n = CNN[0][i]
-            k1,k2 = CNN[1][2*i:2*i+2]
-            if (n > 0):
-                cnn_inner = Conv2D(n, (k1,k2), padding='same', activation='relu', kernel_initializer='he_normal', name='conv'+str(cpt_conv))(cnn_inner)
-                cnn_inner = BatchNormalization()(cnn_inner)
-                cpt_conv = cpt_conv + 1
-                nb_filters = n
-            else:
-                cnn_inner = MaxPooling2D(pool_size=(k1,k2),name='max'+str(cpt_pool))(cnn_inner)
-                reduction[0] = reduction[0]*k1
-                reduction[1] = reduction[1]*k2
-                cpt_pool = cpt_pool + 1
-            i = i+1
-    else :
-        # First conv2D plus max pooling 2D
-        conv1 = Conv2D(conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv1')(_inputrs)
-        pool1 = MaxPooling2D(pool_size=(2,2), name='max1')(conv1)
-        # Second conv2d plus max pooling 2D
-        conv2 = Conv2D(2*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv2')(pool1)
-        pool2 = MaxPooling2D(pool_size=(2,2), name='max2')(conv2)
-        conv3 = Conv2D(3*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv3')(pool2)
-        pool3 = MaxPooling2D(pool_size=(1,2), name='max3')(conv3)
-        cnn_inner = Conv2D(4*conv_filters, (3,3), padding='same', activation='relu', kernel_initializer='he_normal', name='conv4')(pool3)
+
+        #Adding all the CNN layers described in the init file or just a 3-layers CNN if nothing is given
+    cnn_inner, reduction, nb_filters = patched_cnn_init(CNN, _inputrs, global_name)
 
     # Reshape to correct rnn inputs
     conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
-    postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
-    if Encoder==None:
-        Encoder=[hidden_dim]*depth[0]
-    else:
-        if len(Encoder)<depth[0]:
-            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
-
-    encoder = RecurrentSequential(unroll=True, stateful=stateful, 
-                                #   return_states=True, return_all_states=True,
-                                  return_sequences=True, name ='encoder')
-    encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
-
-    for k in range(1, depth[0]):
-        encoder.add(Dropout(dropout))
-        encoder.add(LSTMCell(Encoder[k]))
-
-    if bidirectional:
-        encoder = Bidirectional(encoder, merge_mode='sum', name='encoder')
-        encoder.forward_layer.build(postcshape)
-        encoder.backward_layer.build(postcshape)
-        # patch
-        encoder.layer = encoder.forward_layer
-
-    #encoded = encoder(cnn_out)
-    if (state_transfer):
-        encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
-        encoder_states._keras_shape = encoded_outputs._keras_shape
-        encoded = concatenate([encoded_outputs,encoder_states], axis=1)
-    else :
-        encoded = encoder(cnn_out)
-
-    if Decoder==None:
-        Decoder=[hidden_dim]*depth[1]
-    else:
-        if len(Decoder)<depth[1]:
-            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
     
-    decoder = RecurrentSequential(decode=True, output_length=output_length,
-                                  unroll=unroll, stateful=stateful, name='the_output')
-    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
-    decoder.add(AltAttentionDecoderCellD(output_dim=output_dim, hidden_dim=Decoder[0]))
-    inputs = [_input]
-    out = decoder(encoded)
+    #RNN Encoder Part
+    cnn_inner = Reshape((input_shape[0],-1))(cnn_inner)
+    cnn_out = TimeDistributed(Dense(dense_cnn_size))(cnn_inner)
+    postcshape = (shape[0],input_shape[0],dense_cnn_size)
+    
+    encoded = encoder_init(cnn_out, postcshape, hidden_dim, depth, dropout, True, bidirectional, unroll, stateful, Encoder)
+    encoded_shape = (shape[0], shape[1], Encoder[-1])
+    #Decoder Part
+    AttentionCell = AttentionDecoderCellDisplay(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
+    decoded = decoder_init(encoded, encoded_shape, Encoder[-1], hidden_dim, output_dim, output_length,
+                           depth, dropout, bidirectional, unroll, stateful, Decoder[0], AttentionCell)
+
     #Load weights layer by layer because the global load_weights is not working for this.
     model = Model(inputs, out)
     for i in range(len(model.layers)):
@@ -362,7 +318,7 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
               batch_size=None, input_shape=None, input_length=None,
               input_dim=None, hidden_dim=None, depth=1, bidirectional=True,
               unroll=False, stateful=False, dropout=0.0, state_transfer=False, 
-              CNN=None, Encoder=None, Decoder=None):
+              CNN=None, Encoder=None, Decoder=None, display_attention=False):
     '''
     This is an attention Seq2seq model with convolutionnal layers before for features extraction.
     Here, there is a soft allignment between the input and output sequence elements.
@@ -414,68 +370,30 @@ def ConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=None,
     _inputrs = Reshape(target_shape=input_shape)(_input)
     global_name = "ord"
     #Adding all the CNN layers described in the init file or just a 3-layers CNN if nothing is given
-    cnn_inner, reduction, nb_filters = patched_cnn_init(CNN, _inputrs, global_name)
-
-    # Reshape to correct rnn inputs
-    conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
-    
+    cnn_inner, reduction, nb_filters = cnn_init(CNN, _inputrs, global_name)
+    dense_cnn_size = 1024
     #RNN Encoder Part
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
-    cnn_out = TimeDistributedDense()
-    postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
-    if Encoder==None:
-        Encoder=[hidden_dim]*depth[0]
-    else:
-        if len(Encoder)<depth[0]:
-            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
-    encoder = RecurrentSequential(unroll=unroll, stateful=stateful, 
-                                #   return_states=True, return_all_states=True,
-                                  return_sequences=True, name =global_name + 'encoder')
-    bi = (shape[0],)+(conv_to_rnn_dims[1],)
-    encoder.add(LSTMCell(Encoder[0], batch_input_shape=bi))
+    cnn_inner = Reshape((input_shape[0],-1))(cnn_inner)
+    cnn_out = TimeDistributed(Dense(dense_cnn_size))(cnn_inner)
+    postcshape = (shape[0],input_shape[0],dense_cnn_size)
     
-    for k in range(1, depth[0]):
-        encoder.add(Dropout(dropout))
-        encoder.add(LSTMCell(Encoder[k]))
+    encoded = encoder_init(cnn_out, postcshape, hidden_dim, depth, dropout, True,
+                           Bidirectional, unroll, stateful, Encoder, global_name)
+    encoded_shape = (shape[0], shape[1], Encoder[-1])
+    #Decoder Part
+    AttentionCell = AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0])
+    if display_attention:
+        Decoder = [Decoder[0]]
+        AttentionCell = AttentionDecoderCellDisplay(AttentionCell)
+    decoded = decoder_init(encoded, encoded_shape, Encoder[-1], hidden_dim, output_dim,
+                           output_length, depth, dropout, bidirectional, unroll, 
+                           stateful, Decoder, AttentionCell)
 
-    if bidirectional:
-        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
-        encoder.forward_layer.build(postcshape)
-        encoder.backward_layer.build(postcshape)
-        # patch
-        encoder.layer = encoder.forward_layer
-
-    encoded = encoder(cnn_out)
-    #State_transfer is not currently supported
-    # if (state_transfer):
-    #     encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
-    #     encoder_states._keras_shape = encoded_outputs._keras_shape
-    #     encoded = concatenate([encoded_outputs,encoder_states], axis=1)
-    # else :
-    #     encoded = encoder(cnn_out)
-
-    if Decoder==None:
-        Decoder=[hidden_dim]*depth[1]
-    else:
-        if len(Decoder)<depth[1]:
-            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
-    
-    decoder = RecurrentSequential(decode=True, output_length=output_length,
-                                  unroll=unroll, stateful=stateful, name='decoder')
-    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
-    if depth[1] == 1:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
-    else:
-        decoder.add(AltAttentionDecoderCell(output_dim=output_dim, hidden_dim=Decoder[0]))
-        for k in range(depth[1] - 2):
-            decoder.add(Dropout(dropout))
-            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
-        decoder.add(Dropout(dropout))
-        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
-    
     inputs = [_input]
-    decoded = decoder(encoded)
-    output = Softmax(name = 'the_output')(decoded)
+    if display_attention:
+        output = Identity(name = 'the_output')(decoded)
+    else:
+        output = Softmax(name = 'the_output')(decoded)
     model = Model(inputs, output)
     model.summary()
     return model
@@ -546,66 +464,21 @@ def ConvJointCTCAttentionSeq2Seq(output_dim, output_length, batch_input_shape=No
 
     # Reshape to correct rnn inputs
     conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
-    cnn_out = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(cnn_inner)
-
-    #Creation of the RNN Encoder
-    postcshape = (shape[0],conv_to_rnn_dims[0],conv_to_rnn_dims[1])
-    enc_input = Input(shape=conv_to_rnn_dims, name='encoder_input')
-    if Encoder==None:
-        Encoder=[hidden_dim]*depth[0]
-    else:
-        if len(Encoder)<depth[0]:
-            Encoder = Encoder + [hidden_dim]*(depth[0]-len(Encoder))
-
-    encoder = RecurrentSequential(unroll=True, stateful=stateful, 
-                                #   return_states=True, return_all_states=True,
-                                  return_sequences=True, name =global_name + 'encoder')
-    encoder.add(LSTMCell(Encoder[0], batch_input_shape=(shape[0], conv_to_rnn_dims[1])))
-
-    for k in range(1, depth[0]):
-        encoder.add(Dropout(dropout))
-        encoder.add(LSTMCell(Encoder[k]))
-
-    if bidirectional:
-        encoder = Bidirectional(encoder, merge_mode='sum', name=global_name + 'encoder')
-        encoder.forward_layer.build(postcshape)
-        encoder.backward_layer.build(postcshape)
-        # patch
-        encoder.layer = encoder.forward_layer
-
-    # if (state_transfer):
-    #     encoded_outputs, _, encoder_states,_ ,_ = encoder(cnn_out)
-    #     encoder_states._keras_shape = encoded_outputs._keras_shape
-    #     encoded_out = concatenate([encoded_outputs,encoder_states], axis=1)
-    # else :
-    encoded_out = encoder(enc_input)
-    encoder_model = Model(inputs=[enc_input], outputs=[encoded_out])
-    encoded = encoder_model(cnn_out)
-
-    #encoded = encoder(cnn_out)
-    #Attention Decoder Part
-    dec_input = Input(shape=(conv_to_rnn_dims[0], Encoder[-1]))
-    if Decoder==None:
-        Decoder=[hidden_dim]*depth[1]
-    else:
-        if len(Decoder)<depth[1]:
-            Decoder = Decoder + [hidden_dim]*(depth[1]-len(Decoder))
     
-    decoder = RecurrentSequential(decode=True, output_length=output_length,
-                                  unroll=unroll, stateful=stateful, name='decoder')
-    decoder.add(Dropout(dropout, batch_input_shape=(shape[0], shape[1], Encoder[-1])))
-    if depth[1] == 1:
-        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
-    else:
-        decoder.add(AltAttentionDecoderCellC(output_dim=output_dim, hidden_dim=Decoder[0]))
-        for k in range(depth[1] - 2):
-            decoder.add(Dropout(dropout))
-            decoder.add(LSTMDecoderCell(output_dim=Decoder[k+1], hidden_dim=Decoder[k]))
-        decoder.add(Dropout(dropout))
-        decoder.add(LSTMDecoderCell(output_dim=output_dim, hidden_dim=Decoder[-1]))
-    decoded_out = decoder(dec_input)
-    decoder_model = Model(inputs=[dec_input], outputs=[decoded_out])
-    decoded = decoder_model(encoded)
+    #RNN Encoder Part
+    cnn_inner = Reshape((input_shape[0],-1))(cnn_inner)
+    cnn_out = TimeDistributed(Dense(dense_cnn_size))(cnn_inner)
+    postcshape = (shape[0],input_shape[0],dense_cnn_size)
+    
+    encoded = encoder_init(cnn_out, postcshape, hidden_dim, depth, dropout, True,
+                           bidirectional, unroll, stateful, Encoder, return_model=True)
+    encoded_shape = (shape[0], shape[1], Encoder[-1])
+    #Decoder Part
+    AttentionCell = AltAttentionDecoderCellD
+    decoded = decoder_init(encoded, encoded_shape, Encoder[-1], hidden_dim, output_dim,
+                           output_length, depth, dropout, bidirectional, unroll, stateful,
+                           Decoder[0], AttentionCell, return_model=True)
+
     output_att = Softmax(name = 'the_output')(decoded)
 
     #CTC Part
