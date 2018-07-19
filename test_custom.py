@@ -66,25 +66,27 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
                                  minibatch_size=minibatch_size,
                                  img_w=img_w,
                                  img_h=img_h,
-                                 downsample_factor=28,
+                                 downsample_factor=4,
                                  val_split=0,
                                  alphabet=alphabet,
                                  absolute_max_string_len=max_str_len,
                                  max_samples=max_samples,
                                  acceptable_loss = 0,
                                  memory_usage_limit=batch_memory_usage,
-                                 use_ctc=use_ctc)
+                                 use_ctc=use_ctc,
+                                 use_patches=True)
     minibatch_size = img_gen.minibatch_size
     nb_samples = img_gen.train_size
+    input_shape = img_gen.input_shape
     print('Batch size : ',minibatch_size)
     act = 'relu'
 
     dir_path = os.path.join(OUTPUT_DIR,run_name)
-    model = load_model("./data/output/"+run_name+"/model.h5",custom_objects=custom_model.get_custom(type_model))
-    model.summary()
-    # model, test_f, _ = custom_model.get_model(type_model,(img_w,img_h),(max_str_len,len(alphabet)), img_gen, **kwargs)
-    # weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
-    # model.load_weights(weight_file)
+    # model = load_model("./data/output/"+run_name+"/model.h5",custom_objects=custom_model.get_custom(type_model))
+    # model.summary()
+    model, test_f, _ = custom_model.get_model(type_model,input_shape,(max_str_len,len(alphabet)), img_gen, **kwargs)
+    weight_file = os.path.join(dir_path,'weights%02d.h5' % (start_epoch-1))
+    model.load_weights(weight_file, by_name=True)
 
     #print 'Compiling model'
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
@@ -92,10 +94,13 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
 
     input_data = model.get_layer('the_input').output
     y_pred1 = model.get_layer('the_output').output
-    test_func = [test_f]#[K.function([input_data], [y_pred1])]
+    if test_f is None:
+        test_func = [K.function([input_data], [y_pred1])]
+    else:
+        test_func = [test_f]
     if (use_ctc and use_att):
         y_pred2 = model.get_layer('the_output_ctc').output
-        test_func = [K.function([input_data], [y_pred1]),K.function([input_data], [y_pred2])]
+        test_func = test_func + [K.function([input_data], [y_pred2])]
 
     #print(model.summary())
     step = nb_samples//minibatch_size
@@ -116,14 +121,17 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
         if (use_ctc and not use_att):
             word_batch = next(img_gen.next_train())[0]
             num_proc = word_batch['the_input'].shape[0]
-            res = test_func[0]([word_batch['the_input'][0:num_proc], word_batch['input_length_decode'][0:num_proc]])
-            proba = res[0]
-            decoded_res = res[1:][0]
-            #decoded_res = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
+            if test_f is None:
+            #decoded_res = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)[0]
             #print(decoded_res)
             #decoded_res2, _ = nt.decode_batch(test_func[1],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
+            
+            else :
+                res = test_func[0]([word_batch['the_input'][0:num_proc], word_batch['input_length_decode'][0:num_proc]])
+                proba = res[0]
+                decoded_res = res[1:][0]
             for j in range(num_proc):
-                dec_str = nt.labels_to_text([decoded_res[j][0].tolist()], alphabet, 11)
+                dec_str = nt.labels_to_text(decoded_res[j], alphabet, 11)
                 source_str = word_batch['source_str'][j]
                 edit_dist, _ = edit_distance(dec_str, source_str) 
                # edit_dist2, _ = edit_distance(decoded_res2[j][0], source_str)
@@ -131,7 +139,7 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
                     acc = 1
                 else :
                     acc = 0
-                print(dec_str,source_str,edit_dist)
+                    #print(dec_str,source_str,edit_dist)
                 accuracy_w[0] = accuracy_w[0] + acc
                 accuracy_c[0] = accuracy_c[0] + min(edit_dist, len(source_str))
                 nb_res = nb_res+1

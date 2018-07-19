@@ -63,7 +63,7 @@ if True:
     x = 0
     history = {}
     epoch = []
-    f = open("./data/output/PatchedAttentionConv-ORA/metrics.pk",'rb')
+    f = open("./data/output/ResCClassic-ORA/metrics.pk",'rb')
     history = pickle.loads(f.read())
  #   init_epoch = len(history['loss']) - len(history['val_loss'])
     max = 0.0

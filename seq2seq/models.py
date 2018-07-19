@@ -224,8 +224,6 @@ def PatchedConvAttentionSeq2Seq(output_dim, output_length, batch_input_shape=Non
     #Adding all the CNN layers described in the init file or just a 3-layers CNN if nothing is given
     cnn_inner, reduction, nb_filters = patched_cnn_init(CNN, _inputrs, global_name)
 
-    # Reshape to correct rnn inputs
-    conv_to_rnn_dims = ((img_w // reduction[0]), (img_h // reduction[1]) * nb_filters)
     
     #RNN Encoder Part
     cnn_inner = Reshape((input_shape[0],-1))(cnn_inner)

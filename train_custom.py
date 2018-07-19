@@ -195,7 +195,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
 
     #Create and set all callbacks for training
     def exp_decay(epoch):
-       initial_lrate = 0.01
+       initial_lrate = 0.0001
        k = 0.007
        lrate = initial_lrate * np.exp(-k*epoch)
        print("Learning rate for epoch {} is {}".format(epoch, lrate))
@@ -205,7 +205,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
     history = HistorySaver(start_epoch)
     save_cb = VizCallback(run_name, test_func, img_gen.next_val())
     nan_cb = keras.callbacks.TerminateOnNaN()
-    callbacks = [history, save_cb, nan_cb]
+    callbacks = [history, save_cb, nan_cb, lrate]
     if False:
         tsboard = TensorBoardWrapper(img_gen, 91 ,log_dir='./logs',histogram_freq=1, batch_size=500, write_graph=False, write_grads=True, write_images=True)
         callbacks = callbacks + [tsboard]
@@ -303,11 +303,11 @@ if __name__ == '__main__':
             for q in range(1,len(str_optimizer)):
                 optarg[q-1] = float(str_optimizer[q])
             opt = keras.optimizers.Adadelta(optarg[0],optarg[1],optarg[2],optarg[3])
-        if (str_optimizer[0]=='SGD'):
+        if (str_optimizer[0]=='sgd'):
             optarg = [0.01,0.0,0.0]
             for q in range(1,len(str_optimizer)):
                 optarg[q-1] = float(str_optimizer[q])
-            opt = keras.optimizers.Adam(float(optarg[0]),float(optarg[1]),float(optarg[2]))
+            opt = keras.optimizers.SGD(float(optarg[0]),float(optarg[1]),float(optarg[2]))
     else:
         opt = str_optimizer[0]
     str_loss = init_content[i+1]

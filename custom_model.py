@@ -125,6 +125,8 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     rnn_size = 64
     post_rnn_fcl_size = 100
     act = 'relu'
+    rd=2
+    
     if len(input_shape) == 3:
         img_w = input_shape[1]
         img_h = input_shape[2]
@@ -135,7 +137,7 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
         use_patches = False
 
     input_data = Input(name='the_input', shape=input_shape, dtype='float32')
-    if (len(input_shape)<3):
+    if (len(input_shape)<4):
         rs_shape = input_shape + (1,)
         input_data_rs = Reshape(target_shape=rs_shape)(input_data)
         conv0 = Conv2D(conv_filters, kernel_size, padding='same',
@@ -150,25 +152,27 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
                     name='conv1')
         if (use_patches):
             conv0 = TimeDistributed(conv0)
-        inner = conv0(input_data_rs)
+        inner = conv0(input_data)
     maxpool0 = MaxPooling2D(pool_size=(pool_size, pool_size), name='max1')
     if (use_patches):
         maxpool0 = TimeDistributed(maxpool0)
     inner = maxpool0(inner)
     conv_filters = conv_filters*2
-    conv1 = Conv2D(conv_filters, kernel_size, padding='same',
-                   activation=act, kernel_initializer='he_normal',
-                   name='conv2')    
-    if (use_patches):
-        conv1 = TimeDistributed(conv1)
-    inner = conv2(inner)
+    inner = td_res_connection(inner, rd, conv_filters, 3, keras.layers.ELU(alpha=1.0))
+    # conv1 = Conv2D(conv_filters, kernel_size, padding='same',
+    #                activation=act, kernel_initializer='he_normal',
+    #                name='conv2')    
+    # if (use_patches):
+    #     conv1 = TimeDistributed(conv1)
+    # inner = conv1(inner)
     maxpool1 = MaxPooling2D(pool_size=(pool_size, pool_size), name='max2')
     if (use_patches):
         maxpool1 = TimeDistributed(maxpool1)
     inner = maxpool1(inner)
+    conv_filters = conv_filters*2
+    inner = td_res_connection(inner, rd, conv_filters, 3, keras.layers.ELU(alpha=1.0))
 
-    conv_to_rnn_dims = (img_w // (pool_size ** 2), (img_h // (pool_size ** 2)) * conv_filters)
-    inner = Reshape(target_shape=conv_to_rnn_dims, name='reshape')(inner)
+    inner = Reshape(target_shape=(input_shape[0],-1), name='reshape')(inner)
 
     # cuts down input size going into RNN:
     inner = Dense(time_dense_size, activation=act, name='dense1')(inner)
@@ -189,8 +193,8 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     y_pred = Activation('softmax', name='the_output')(inner)
     labels = Input(name='the_labels', shape=[img_gen.absolute_max_string_len], dtype='float32')
     input_length = Input(name='input_length', shape=[1], dtype='int64')
-    print(input_length)
     label_length = Input(name='label_length', shape=[1], dtype='int64')
+    decode_length = Input(name='input_length_decode', batch_shape=[None], dtype='int64')
     # Keras doesn't currently support loss funcs with extra parameters
     # so CTC loss is implemented in a lambda layer
     loss_out = Lambda(ctc_lambda_func, output_shape=(1,), name='ctc')([y_pred, labels, input_length, label_length])
@@ -204,7 +208,15 @@ def Model_CNN_RNN_CTC(input_shape, img_gen):
     print('Compiling model')
     # the loss calc occurs elsewhere, so use a dummy lambda func for the loss
     model.compile(loss={'ctc': lambda y_true, y_pred: y_pred}, optimizer='adam')
-    return model, test_func, None
+
+    top_path=5
+    top_k_decoded = K.ctc_decode(y_pred, decode_length, greedy=False,beam_width=20,top_paths=top_path)
+    outout = [y_pred]
+    for i in range (top_path):
+        outout = outout+[top_k_decoded[0][i]]
+    decoder = K.function([input_data, decode_length], outout)
+
+    return model, decoder, None
 
 def Model_ResCNN_RNN_CTC(input_shape, img_gen):
     # Input Parameters
@@ -238,9 +250,9 @@ def Model_ResCNN_RNN_CTC(input_shape, img_gen):
                     activation=act, kernel_initializer='he_normal', name='conv1')(input_data)
     
     mp_0 = MaxPooling2D(pool_size=(2,2),name="max1")(inner)
-    res_1 = res_connection(mp_0, rd, 64, 3, act)
+    res_1 = td_res_connection(mp_0, rd, 64, 3, act)
     mp_1 = MaxPooling2D(pool_size=(2,2),name="max1")(res_1)
-    res_2 = res_connection(mp_1, rd, 128, 3, act)
+    res_2 = td_res_connection(mp_1, rd, 128, 3, act)
     mp_2 = MaxPooling2D(pool_size=(2,2),name="max2")(res_2)
 
     conv_to_rnn_dims = ((img_w // (8)), ((img_h // (8))) * 128)
@@ -411,18 +423,19 @@ def res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
 def td_res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
     from keras.layers import Conv2D, Activation, add
     x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(i)
+    #x = BatchNormalization()(x)
     orig_x = x
-    x = Activation(activation)(x)
+    #x = Activation(activation)(x)
     for aRes in range(0, residual_depth):
         if aRes < residual_depth-1:
             x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(x)
-            x = BatchNormalization()(x)
+            #x = BatchNormalization()(x)
             x = Activation(activation)(x)
         else:
             x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(x)
             x = BatchNormalization()(x)
     x = add([orig_x, x])
-    x = Activation(activation)(x)
+    #x = Activation(activation)(x)
     return x
 
 def Model_ResCClasic(input_shape, img_gen):
@@ -456,10 +469,10 @@ def Model_ResCClasic(input_shape, img_gen):
     mp_2 = TimeDistributed(MaxPooling2D(pool_size=(2,2),name="max2"))(res_2)
     conv_filters = conv_filters*2
     res_3 = td_res_connection(mp_2, rd, conv_filters, 3, act)
-    # mp_3 = MaxPooling2D(pool_size=(2,2),name="max3")(res_3)
+    mp_3 = TimeDistributed(MaxPooling2D(pool_size=(2,2),name="max3"))(res_3)
     # res_4 = res_connection(mp_3, rd, 512, 3, act)
 
-    cnn_inner = Reshape((input_shape[0],-1))(res_3)
+    cnn_inner = Reshape((input_shape[0],-1))(mp_3)
     cnn_out = TimeDistributed(Dense(time_dense_size))(cnn_inner)
     # cuts down input size going into RNN:
 

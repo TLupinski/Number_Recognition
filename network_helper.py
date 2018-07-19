@@ -15,6 +15,7 @@ import cv2
 from tqdm import tqdm
 from keras.utils import plot_model
 from skimage.util import view_as_windows
+from math import ceil
 
 t = 0
 
@@ -125,7 +126,7 @@ def labels_to_text(labels, alphabet, size):
     """Reverse translation of numerical classes back to characters."""
     ret = []
     for c in labels:
-        if c == size:  # CTC Blank
+        if c == size or c ==-1:  # CTC Blank
             ret.append("")
         else:
             ret.append(alphabet[c])
@@ -155,7 +156,7 @@ class TextImageGenerator(keras.callbacks.Callback):
                  alphabet, use_ctc=False, minibatch_size=-1, maxbatch_size=-1, 
                  absolute_max_string_len=16, max_samples=1000, noise=None,
                  memory_usage_limit=2000000, acceptable_loss = 0, channels=1,
-                 use_patches=False, patch_size = (16,32), patch_step=12):
+                 use_patches=False, patch_size = (12,32), patch_step=8):
         self.minibatch_size = minibatch_size
         self.img_w = img_w
         self.img_h = img_h
@@ -184,7 +185,7 @@ class TextImageGenerator(keras.callbacks.Callback):
         if maxbatch_size ==-1:
             self.maxbatch_size = int(memory_usage_limit / (img_w*img_h))
         if use_patches:
-            step = img_w/patch_step - (patch_size[0]-patch_step)/patch_step
+            step = img_w/patch_step - int(ceil(float((patch_size[0]-patch_step))/float(patch_step)))
             self.input_shape = (step, patch_size[0], patch_size[1])
         else : 
             self.input_shape = (img_w, img_h)
