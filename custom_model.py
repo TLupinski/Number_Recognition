@@ -420,22 +420,22 @@ def res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
     x = Activation(activation)(x)
     return x
 
-def td_res_connection(i, residual_depth, n_filters, k_size, activation="relu"):
+def td_res_connection(i, residual_depth, n_filters, k_size, activation=Activation("relu")):
     from keras.layers import Conv2D, Activation, add
     x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(i)
     #x = BatchNormalization()(x)
     orig_x = x
-    #x = Activation(activation)(x)
+    x = activation(x)
     for aRes in range(0, residual_depth):
         if aRes < residual_depth-1:
             x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(x)
-            #x = BatchNormalization()(x)
-            x = Activation(activation)(x)
+            x = BatchNormalization()(x)
+            x = activation(x)
         else:
             x = TimeDistributed(Conv2D(n_filters, (k_size,k_size), padding="same"))(x)
             x = BatchNormalization()(x)
     x = add([orig_x, x])
-    #x = Activation(activation)(x)
+    #x = activation(x)
     return x
 
 def Model_ResCClasic(input_shape, img_gen):
@@ -451,7 +451,7 @@ def Model_ResCClasic(input_shape, img_gen):
     pool_size = 2
     rnn_size = 128
     post_rnn_fcl_size = 100
-    act = 'relu'
+    act = keras.layers.ELU(alpha=1.0)
     img_w = input_shape[0]
     img_h = input_shape[1]
 
@@ -470,7 +470,8 @@ def Model_ResCClasic(input_shape, img_gen):
     conv_filters = conv_filters*2
     res_3 = td_res_connection(mp_2, rd, conv_filters, 3, act)
     mp_3 = TimeDistributed(MaxPooling2D(pool_size=(2,2),name="max3"))(res_3)
-    # res_4 = res_connection(mp_3, rd, 512, 3, act)
+    conv_filters = conv_filters*2
+    res_4 = td_res_connection(mp_3, rd, conv_filters, 3, act)
 
     cnn_inner = Reshape((input_shape[0],-1))(mp_3)
     cnn_out = TimeDistributed(Dense(time_dense_size))(cnn_inner)

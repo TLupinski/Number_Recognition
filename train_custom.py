@@ -172,7 +172,7 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
                                  memory_usage_limit=batch_memory_usage,
                                  channels=channels,
                                  use_ctc=use_ctc,
-                                 noise=None,
+                                 noise="s&p",
                                  use_patches=True)
     minibatch_size = img_gen.minibatch_size
     input_shape = img_gen.input_shape
@@ -195,8 +195,8 @@ def train(run_name, datafolder_name, img_w, img_h, start_epoch, stop_epoch, val_
 
     #Create and set all callbacks for training
     def exp_decay(epoch):
-       initial_lrate = 0.0001
-       k = 0.007
+       initial_lrate = 0.005
+       k = 0.015
        lrate = initial_lrate * np.exp(-k*epoch)
        print("Learning rate for epoch {} is {}".format(epoch, lrate))
        return lrate

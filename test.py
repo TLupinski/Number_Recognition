@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 #import psutil
 import numpy as np
@@ -63,12 +64,12 @@ if True:
     x = 0
     history = {}
     epoch = []
-    f = open("./data/output/ResCClassic-ORA/metrics.pk",'rb')
+    f = open(sys.argv[1],'rb')
     history = pickle.loads(f.read())
  #   init_epoch = len(history['loss']) - len(history['val_loss'])
     max = 0.0
     imax = -1
-    p = history['val_categorical_accuracy']
+    p = history['val_the_output_categorical_accuracy']
     for i in range(len(p)):
         if p[i] > max:
             imax = i
@@ -109,6 +110,4 @@ else :
     #     plt.subplot2grid((2,nbp), (1, i))
     #     plt.imshow(img_patched[i], cmap=cm.gray)
     # plt.show()
-
-
-
+    x = 1

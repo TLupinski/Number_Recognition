@@ -122,10 +122,9 @@ def test(run_name, img_w, img_h, start_epoch, use_ctc, use_att, minibatch_size, 
             word_batch = next(img_gen.next_train())[0]
             num_proc = word_batch['the_input'].shape[0]
             if test_f is None:
-            #decoded_res = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)[0]
-            #print(decoded_res)
-            #decoded_res2, _ = nt.decode_batch(test_func[1],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
-            
+                decoded_res = nt.decode_batch(test_func[0],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)[0]
+                print(decoded_res)
+                decoded_res2, _ = nt.decode_batch(test_func[1],word_batch['the_input'][0:num_proc],alphabet, False, ctc_decode=True, n=N)
             else :
                 res = test_func[0]([word_batch['the_input'][0:num_proc], word_batch['input_length_decode'][0:num_proc]])
                 proba = res[0]
